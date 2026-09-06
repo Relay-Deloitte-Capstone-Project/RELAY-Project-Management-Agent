@@ -2,12 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import {
-  EmptyState,
-  GhostButton,
-  PageSection,
-  Panel,
-} from "@/components/relay/primitives";
+import { EmptyState, GhostButton, PageSection, Panel } from "@/components/relay/primitives";
 import { scratchpadNotes } from "@/lib/mockData";
 import {
   Dialog,
@@ -22,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 
-export const Route = createFileRoute("/dev/scratchpad")({
+export const Route = createFileRoute("/_authenticated/dev/scratchpad")({
   head: () => ({
     meta: [
       { title: "Scratchpad — Relay" },
@@ -34,14 +29,16 @@ export const Route = createFileRoute("/dev/scratchpad")({
       { property: "og:title", content: "Scratchpad — Relay" },
       {
         property: "og:description",
-        content: "Auto-drafted notes from PRs land here as drafts. Nothing is stored unless you approve.",
+        content:
+          "Auto-drafted notes from PRs land here as drafts. Nothing is stored unless you approve.",
       },
     ],
   }),
-  component: Scratchpad;
+  component: Scratchpad,
 });
 
 function Scratchpad() {
+  const { user } = Route.useRouteContext();
   const drafts = scratchpadNotes.filter((n) => !n.approved);
   const [approved, setApproved] = useState(scratchpadNotes.filter((n) => n.approved));
   const [dismissed, setDismissed] = useState<number[]>([]);
@@ -49,7 +46,7 @@ function Scratchpad() {
   const visibleDrafts = drafts.filter((d) => !dismissed.includes(d.id));
 
   return (
-    <AppShell role="developer" title="Scratchpad">
+    <AppShell user={user} title="Scratchpad">
       <PageSection
         label="Auto-drafted from your PRs"
         subtitle="Generated when a pull request merges. Default is dismiss — nothing is stored unless you approve."
@@ -67,17 +64,18 @@ function Scratchpad() {
               key={note.id}
               className="mb-2 rounded-r-lg border-l-[3px] border-l-warning bg-warning-soft px-3.5 py-2.5"
             >
-              <h3 className="text-[12px] font-semibold text-ink">{note.title}</h3>
-              <p className="mt-1 text-[11px] leading-[1.5] text-mute">{note.body}</p>
-              <div className="mt-1.5 text-[10px] text-mute">
+              <h3 className="text-[13px] font-semibold text-ink">{note.title}</h3>
+              <p className="mt-1 text-[13px] leading-[1.5] text-mute">{note.body}</p>
+              <div className="mt-1.5 text-[11px] text-mute">
                 Drafted from {note.source} · {note.draftedAt}
               </div>
               <div className="mt-2.5 flex items-center gap-2">
                 <GhostButton
                   tone="success"
                   onClick={() => {
+                    const { draftedAt: _draftedAt, ...rest } = note;
                     setApproved((prev) => [
-                      { ...note, approved: true, approvedAt: "just now" },
+                      { ...rest, approved: true, approvedAt: "just now" },
                       ...prev,
                     ]);
                     setDismissed((prev) => [...prev, note.id]);
@@ -110,7 +108,7 @@ function Scratchpad() {
             className="group mb-2 rounded-r-lg border border-border border-l-[3px] border-l-success bg-card px-3.5 py-2.5"
           >
             <div className="flex items-start justify-between gap-3">
-              <h3 className="text-[12px] font-semibold text-ink">{note.title}</h3>
+              <h3 className="text-[13px] font-semibold text-ink">{note.title}</h3>
               <span className="flex gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">
                 <GhostButton>
                   <Pencil />
@@ -120,8 +118,8 @@ function Scratchpad() {
                 </GhostButton>
               </span>
             </div>
-            <p className="mt-1 text-[11px] leading-[1.5] text-mute">{note.body}</p>
-            <div className="mt-1.5 text-[10px] text-mute">
+            <p className="mt-1 text-[13px] leading-[1.5] text-mute">{note.body}</p>
+            <div className="mt-1.5 text-[11px] text-mute">
               Approved {note.approvedAt} · From {note.source}
             </div>
           </div>
@@ -132,7 +130,7 @@ function Scratchpad() {
             <DialogTrigger asChild>
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[11px] font-medium text-mute transition-colors duration-150 hover:border-brand hover:text-brand [&_svg]:size-3"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[13px] font-medium text-mute transition-colors duration-150 hover:border-brand hover:text-brand [&_svg]:size-3"
               >
                 <Plus /> Write a note
               </button>
@@ -140,16 +138,16 @@ function Scratchpad() {
             <DialogContent>
               <DialogHeader>
                 <DialogTitle className="text-[14px]">New scratchpad note</DialogTitle>
-                <DialogDescription className="text-[12px]">
+                <DialogDescription className="text-[13px]">
                   Private to you. Promote it to the team knowledge base when the ticket closes.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
-                <Input placeholder="Note title" className="text-[12px]" />
+                <Input placeholder="Note title" className="text-[13px]" />
                 <Textarea
                   placeholder="What did you learn? Include the reasoning, not just the fix."
                   rows={5}
-                  className="text-[12px]"
+                  className="text-[13px]"
                 />
               </div>
               <DialogFooter>
@@ -165,7 +163,7 @@ function Scratchpad() {
 
       <PageSection label="Retention rule">
         <Panel>
-          <p className="text-[12px] leading-relaxed text-mute">
+          <p className="text-[13px] leading-relaxed text-mute">
             If a note references specific client data, it is deleted when the client leaves — even
             though it is &quot;personal.&quot; Private controls{" "}
             <span className="font-medium text-ink">who</span> sees it, not{" "}

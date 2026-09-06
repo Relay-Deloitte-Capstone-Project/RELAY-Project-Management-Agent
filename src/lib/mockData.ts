@@ -1,20 +1,9 @@
-export type Role = "developer" | "manager" | "admin";
-
 export const project = {
   name: "Apache Kafka",
   engagement: "Q3 engagement",
   tickets: 1247,
   commits: 892,
   prThreads: 344,
-};
-
-export const currentUser = {
-  name: "Ravi Gupta",
-  firstName: "Ravi",
-  initials: "RG",
-  openTickets: 7,
-  openPRs: 3,
-  pendingReviews: 2,
 };
 
 export const tickets = [
@@ -187,9 +176,7 @@ export const handoverBriefs: Record<
         stale: "today",
       },
     ],
-    branches: [
-      { name: "feat/kraft-failover-latency", commitsAhead: 6, lastPush: "6h ago" },
-    ],
+    branches: [{ name: "feat/kraft-failover-latency", commitsAhead: 6, lastPush: "6h ago" }],
     reviews: [
       {
         key: "#16801",
@@ -214,9 +201,7 @@ export const handoverBriefs: Record<
         stale: "2 days",
       },
     ],
-    branches: [
-      { name: "feat/consumer-protocol-v2-assignor", commitsAhead: 4, lastPush: "1d ago" },
-    ],
+    branches: [{ name: "feat/consumer-protocol-v2-assignor", commitsAhead: 4, lastPush: "1d ago" }],
     reviews: [
       {
         key: "#16744",
@@ -235,10 +220,252 @@ export const handoverBriefs: Record<
         stale: "6 days stale",
       },
     ],
-    branches: [
-      { name: "fix/tiered-storage-retention", commitsAhead: 2, lastPush: "5d ago" },
-    ],
+    branches: [{ name: "fix/tiered-storage-retention", commitsAhead: 2, lastPush: "5d ago" }],
     reviews: [],
+  },
+};
+
+export type HandoverSituation = "leave" | "leaving" | "onboarding";
+
+export const handoverDetails: Record<
+  string,
+  {
+    activeSince: string;
+    tickets: {
+      key: string;
+      title: string;
+      priority: "Critical" | "High" | "Review" | "Low";
+      note: string;
+    }[];
+    branches: {
+      name: string;
+      commitsAhead: number;
+      lastPush: string;
+      state: "mid-flight" | "stale";
+    }[];
+    prsAwaiting: { key: string; title: string; waitingDays: number }[];
+    recentActivity: { sha: string; message: string; when: string }[];
+    knowledgeRisks: { level: "high" | "medium" | "low"; title: string; detail: string }[];
+    docCoverage: { label: string; value: number }[];
+    recommendations: string[];
+  }
+> = {
+  ravi: {
+    activeSince: "Mar 2024",
+    tickets: [
+      {
+        key: "KAFKA-16180",
+        title: "SASL auth token refresh loop",
+        priority: "Critical",
+        note: "No assignee coverage · Last updated 5d ago",
+      },
+      {
+        key: "KAFKA-16245",
+        title: "Consumer group rebalance timeout",
+        priority: "High",
+        note: "Branch: fix/kafka-16245-rebalance · 3 commits",
+      },
+      {
+        key: "KAFKA-16092",
+        title: "Add metrics for partition reassignment",
+        priority: "Review",
+        note: "In review · Jun is reviewing",
+      },
+      {
+        key: "KAFKA-15990",
+        title: "Update consumer offset manager docs",
+        priority: "Low",
+        note: "Open · not started",
+      },
+    ],
+    branches: [
+      { name: "fix/kafka-16245", commitsAhead: 3, lastPush: "2h ago", state: "mid-flight" },
+      { name: "fix/kafka-16180", commitsAhead: 1, lastPush: "3d ago", state: "stale" },
+    ],
+    prsAwaiting: [{ key: "#16789", title: "Jun's PR awaiting Ravi's review", waitingDays: 2 }],
+    recentActivity: [
+      {
+        sha: "a3f2b1c",
+        message: "Fixed token rotation window overlap in SASL handler",
+        when: "2h ago",
+      },
+      {
+        sha: "8e4d9f1",
+        message: "WIP: rebalance timeout — partial implementation",
+        when: "3d ago",
+      },
+      {
+        sha: "c7a1e2f",
+        message: "PR review comment: suggested using atomic compare-and-swap",
+        when: "4d ago",
+      },
+    ],
+    knowledgeRisks: [
+      {
+        level: "high",
+        title: "SASL auth module — Ravi is the sole contributor to 87% of commits",
+        detail:
+          "No other team member has touched this module in the last 6 months. If his branch doesn't merge, this is unrecoverable context.",
+      },
+      {
+        level: "medium",
+        title: "Consumer rebalance fix — only 1 PR review comment thread explaining the approach",
+        detail:
+          "Ravi responded to Jun's question in PR #16789 but the reasoning was not captured in a scratchpad note.",
+      },
+      {
+        level: "low",
+        title:
+          "Partition metrics endpoint — well documented, 3 linked commits, PR description is thorough",
+        detail: "Safe to hand over. KAFKA-16092 has enough context for any developer to continue.",
+      },
+    ],
+    docCoverage: [
+      { label: "SASL / auth module", value: 12 },
+      { label: "Consumer group rebalance", value: 38 },
+      { label: "Partition metrics", value: 74 },
+    ],
+    recommendations: [
+      "Ask Ravi to approve the auto-draft note from PR #16801 (currently pending in his scratchpad)",
+      "Schedule a 30-min knowledge transfer for the SASL module with whoever takes over",
+      "The unmerged fix/kafka-16180 branch needs a decision: merge as-is or close with a note",
+    ],
+  },
+  jun: {
+    activeSince: "Jan 2023",
+    tickets: [
+      {
+        key: "KAFKA-16301",
+        title: "Add custom dashboard for partition health",
+        priority: "High",
+        note: "Open · 1 day stale",
+      },
+      {
+        key: "KAFKA-16112",
+        title: "KRaft controller failover latency regression",
+        priority: "Review",
+        note: "In review · today",
+      },
+    ],
+    branches: [
+      {
+        name: "feat/kraft-failover-latency",
+        commitsAhead: 6,
+        lastPush: "6h ago",
+        state: "mid-flight",
+      },
+    ],
+    prsAwaiting: [{ key: "#16801", title: "Ravi's PR awaiting Jun's review", waitingDays: 0 }],
+    recentActivity: [
+      { sha: "f0a91cd", message: "Reworked controller failover retry backoff", when: "6h ago" },
+      {
+        sha: "2b6d8e3",
+        message: "Added dashboard scaffolding for partition health",
+        when: "1d ago",
+      },
+    ],
+    knowledgeRisks: [
+      {
+        level: "medium",
+        title: "KRaft failover module — Jun is sole reviewer on 6 of the last 8 PRs",
+        detail:
+          "Failover logic is well-commented in code but the retry-backoff rationale lives only in PR discussion.",
+      },
+      {
+        level: "low",
+        title: "Partition health dashboard — early stage, low risk if paused",
+        detail: "Scaffolding only; no downstream dependents yet.",
+      },
+    ],
+    docCoverage: [
+      { label: "KRaft failover", value: 58 },
+      { label: "Partition health dashboard", value: 20 },
+    ],
+    recommendations: [
+      "Capture the retry-backoff rationale from PR #16801 discussion into a scratchpad note",
+      "Confirm someone else can review Ravi's pending PR while Jun is out",
+    ],
+  },
+  jason: {
+    activeSince: "Jun 2022",
+    tickets: [
+      {
+        key: "KAFKA-16289",
+        title: "Extend health check to include rack awareness",
+        priority: "High",
+        note: "Open · 3 days stale",
+      },
+      {
+        key: "KAFKA-16204",
+        title: "Consumer group protocol v2 assignor edge cases",
+        priority: "Review",
+        note: "In progress · 2 days",
+      },
+    ],
+    branches: [
+      {
+        name: "feat/consumer-protocol-v2-assignor",
+        commitsAhead: 4,
+        lastPush: "1d ago",
+        state: "mid-flight",
+      },
+    ],
+    prsAwaiting: [{ key: "#16744", title: "Rack-aware health check probes", waitingDays: 3 }],
+    recentActivity: [
+      {
+        sha: "9d1c4a2",
+        message: "Added rack-awareness probe to health check loop",
+        when: "1d ago",
+      },
+      {
+        sha: "5e7f0b8",
+        message: "WIP: assignor edge case for uneven partition counts",
+        when: "2d ago",
+      },
+    ],
+    knowledgeRisks: [
+      {
+        level: "high",
+        title: "Consumer protocol v2 assignor — Jason is the only contributor",
+        detail:
+          "Edge-case handling for uneven partition counts is undocumented and only exists in the branch diff.",
+      },
+    ],
+    docCoverage: [{ label: "Consumer protocol v2 assignor", value: 15 }],
+    recommendations: [
+      "Ask Jason to walk through the assignor edge cases before his leave starts",
+      "Assign a reviewer to #16744 — it's been waiting 3 days",
+    ],
+  },
+  david: {
+    activeSince: "Sep 2021",
+    tickets: [
+      {
+        key: "KAFKA-15790",
+        title: "Broker shutdown hangs on unclean log dir",
+        priority: "High",
+        note: "Open · 6 days stale",
+      },
+    ],
+    branches: [
+      { name: "fix/tiered-storage-retention", commitsAhead: 2, lastPush: "5d ago", state: "stale" },
+    ],
+    prsAwaiting: [],
+    recentActivity: [
+      { sha: "1a2b3c4", message: "Investigated shutdown hang on unclean log dir", when: "5d ago" },
+    ],
+    knowledgeRisks: [
+      {
+        level: "medium",
+        title: "Tiered storage retention — branch stale for 5 days, no PR opened yet",
+        detail:
+          "David is the only one who has touched tiered storage retention semantics in the last 3 months.",
+      },
+    ],
+    docCoverage: [{ label: "Tiered storage retention", value: 45 }],
+    recommendations: [
+      "Decide whether the stale fix/tiered-storage-retention branch should be picked up or closed",
+    ],
   },
 };
 
@@ -427,6 +654,66 @@ export const ingestionRuns = [
     status: "Complete",
     lastRun: "2h ago",
   },
+];
+
+export const scopeHealth = [
+  { label: "In-scope tickets", value: 78, tone: "success" as const },
+  { label: "Out-of-scope", value: 12, tone: "danger" as const },
+  { label: "Ambiguous", value: 10, tone: "warning" as const },
+];
+
+export const riskSignals = [
+  {
+    level: "high" as const,
+    title: "3 tickets flagged out-of-scope",
+    detail: "Custom dashboards and alerting work outside the D3 metrics boundary.",
+  },
+  {
+    level: "medium" as const,
+    title: "Epic 'Consumer protocol' is 81% built but only 28% documented",
+    detail: "Risk of knowledge loss if the assignee rotates off the project.",
+  },
+  {
+    level: "low" as const,
+    title: "Coverage improved 4% this week (58% → 62%)",
+    detail: "Driven by 9 newly linked commits on the KRaft migration epic.",
+  },
+];
+
+export const weeklyActivity = [
+  { label: "Tickets closed", value: 12 },
+  { label: "PRs merged", value: 8 },
+  { label: "Questions asked", value: 23 },
+  { label: "Notes captured", value: 5 },
+];
+
+export const scopeAlerts = [
+  {
+    id: "kafka-16301",
+    severity: "danger" as const,
+    badge: "Out of scope",
+    key: "KAFKA-16301",
+    title: "Add custom dashboard for partition health",
+    detail: 'Violates D3 boundary: "Metrics limited to existing JMX endpoints." — Clause D3.4',
+    action: "Draft change order",
+  },
+  {
+    id: "kafka-16289",
+    severity: "warning" as const,
+    badge: "Ambiguous",
+    key: "KAFKA-16289",
+    title: "Extend health check to include rack awareness",
+    detail:
+      "Could fall under D3 'system health monitoring' but rack awareness is not explicitly listed. Escalated to PM.",
+    action: null,
+  },
+];
+
+export const systemServices = [
+  { label: "Database", value: "Connected", tone: "success" as const },
+  { label: "Jira MCP", value: "Connected", tone: "success" as const },
+  { label: "GitHub MCP", value: "Connected", tone: "success" as const },
+  { label: "Ollama", value: "llama3.1:8b", tone: "success" as const },
 ];
 
 export const allUsers = [

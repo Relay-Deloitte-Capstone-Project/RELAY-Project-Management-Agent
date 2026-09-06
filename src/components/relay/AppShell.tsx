@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   BarChart3,
   Boxes,
@@ -11,18 +11,23 @@ import {
   Settings,
   Shield,
   Sun,
+  Sunrise,
+  Sunset,
   TriangleAlert,
   Users,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { currentUser, project, type Role } from "@/lib/mockData";
+import { project } from "@/lib/mockData";
+import { periodConfig, useTimePeriod, type Period } from "@/hooks/useTimePeriod";
+import type { Role, SessionUser } from "@/lib/auth/types";
+import { SignOutButton } from "./SignOutButton";
 
 type NavItem = { to: string; label: string; icon: ReactNode };
 type NavGroup = { label: string; items: NavItem[] };
 
 const NAV: Record<Role, NavGroup[]> = {
-  developer: [
+  DEVELOPER: [
     {
       label: "My workspace",
       items: [
@@ -39,7 +44,7 @@ const NAV: Record<Role, NavGroup[]> = {
       ],
     },
   ],
-  manager: [
+  MANAGER: [
     {
       label: "Overview",
       items: [
@@ -54,23 +59,17 @@ const NAV: Record<Role, NavGroup[]> = {
       items: [{ to: "/mgr/admin", label: "Access control", icon: <Lock /> }],
     },
   ],
-  admin: [
+  ADMIN: [
     {
       label: "System",
       items: [
-        { to: "/admin", label: "System health", icon: <BarChart3 /> },
+        { to: "/admin/dashboard", label: "System health", icon: <BarChart3 /> },
         { to: "/admin/users", label: "All users", icon: <Users /> },
-        { to: "/admin/logs", label: "Ingestion logs", icon: <Database /> },
+        { to: "/admin/ingestion", label: "Ingestion logs", icon: <Database /> },
         { to: "/admin/config", label: "Configuration", icon: <Settings /> },
       ],
     },
   ],
-};
-
-const ROLE_HOME: Record<Role, string> = {
-  developer: "/dev/work",
-  manager: "/mgr/dashboard",
-  admin: "/admin",
 };
 
 export function useDarkMode() {
@@ -114,29 +113,20 @@ export function ThemeToggle({ dark, toggle }: { dark: boolean; toggle: () => voi
   );
 }
 
-function RoleSwitcher({ role }: { role: Role }) {
-  const navigate = useNavigate();
-  const roles: Role[] = ["developer", "manager", "admin"];
+const PERIOD_ICON: Record<Period, typeof Sunrise> = {
+  dawn: Sunrise,
+  day: Sun,
+  evening: Sunset,
+  night: Moon,
+};
+
+function PeriodChip({ period }: { period: Period }) {
+  const config = periodConfig[period];
+  const Icon = PERIOD_ICON[period];
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-[10px] tracking-wide text-mute uppercase">View as:</span>
-      <div className="flex overflow-hidden rounded-md border border-border">
-        {roles.map((r) => (
-          <button
-            key={r}
-            type="button"
-            onClick={() => navigate({ to: ROLE_HOME[r] })}
-            className={cn(
-              "px-2.5 py-1 text-[11px] font-medium capitalize transition-colors duration-150",
-              r === role
-                ? "bg-brand text-brand-foreground"
-                : "text-mute hover:bg-surface-sunken hover:text-ink",
-            )}
-          >
-            {r}
-          </button>
-        ))}
-      </div>
+    <div className="period-chip" style={{ background: config.accentSoft, color: config.accent }}>
+      <Icon size={13} />
+      <span>{config.label}</span>
     </div>
   );
 }
@@ -148,23 +138,26 @@ function Sidebar({ role }: { role: Role }) {
         <span className="font-mono text-[13px] tracking-[3px] text-sidebar-foreground uppercase">
           Relay
         </span>
-        <span className="ml-1.5 inline-block size-1.5 rounded-full bg-brand align-middle" />
+        <span
+          className="ml-1.5 inline-block size-1.5 rounded-full align-middle"
+          style={{ background: "var(--period-accent)" }}
+        />
       </Link>
 
       <nav className="flex-grow px-3">
         {NAV[role].map((group) => (
           <div key={group.label} className="mb-5">
-            <div className="mb-1.5 px-2 text-[10px] font-semibold tracking-[0.05em] text-sidebar-muted uppercase">
+            <div className="mb-1.5 px-2 text-[11px] font-semibold tracking-[0.05em] text-sidebar-muted uppercase">
               {group.label}
             </div>
             {group.items.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
-                activeOptions={{ exact: item.to === "/admin" }}
-                className="flex h-9 items-center gap-2.5 rounded-md px-2 text-[12px] text-sidebar-muted transition-colors duration-150 hover:bg-sidebar-active hover:text-sidebar-foreground [&_svg]:size-3.5"
+                className="flex h-9 items-center gap-2.5 rounded-md border-l-2 border-l-transparent px-2 text-[13px] font-medium text-sidebar-muted transition-colors duration-150 hover:bg-sidebar-active hover:text-sidebar-foreground [&_svg]:size-3.5"
                 activeProps={{
-                  className: "bg-sidebar-active !text-sidebar-foreground font-medium",
+                  className:
+                    "bg-sidebar-active !text-[var(--period-accent)] !border-l-[var(--period-accent)]",
                 }}
               >
                 {item.icon}
@@ -175,14 +168,16 @@ function Sidebar({ role }: { role: Role }) {
         ))}
       </nav>
 
+      <div className="border-t border-sidebar-border py-2">
+        <SignOutButton />
+      </div>
+
       <div className="border-t border-sidebar-border px-5 py-4">
         <div className="flex items-center gap-1.5">
           <span className="size-1.5 rounded-full bg-success" />
-          <span className="text-[11px] font-medium text-sidebar-foreground">
-            {project.name}
-          </span>
+          <span className="text-[13px] font-medium text-sidebar-foreground">{project.name}</span>
         </div>
-        <div className="mt-1 text-[10px] text-sidebar-muted">
+        <div className="mt-1 text-[11px] text-sidebar-muted">
           {project.tickets.toLocaleString()} tickets · {project.commits} commits
         </div>
       </div>
@@ -191,32 +186,39 @@ function Sidebar({ role }: { role: Role }) {
 }
 
 export function AppShell({
-  role,
+  user,
   title,
   children,
   padded = true,
 }: {
-  role: Role;
+  user: SessionUser;
   title: string;
   children: ReactNode;
   padded?: boolean;
 }) {
   const { dark, toggle } = useDarkMode();
+  const period = useTimePeriod();
 
   return (
     <div className="flex h-screen min-w-[1024px] overflow-hidden bg-background">
-      <Sidebar role={role} />
+      <Sidebar role={user.role} />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
-          <h1 className="text-[14px] font-medium text-ink">{title}</h1>
+          <h1 className="text-[15px] font-semibold text-ink">{title}</h1>
           <div className="flex items-center gap-3">
+            <PeriodChip period={period} />
             <ThemeToggle dark={dark} toggle={toggle} />
-            <RoleSwitcher role={role} />
-            <div className="flex items-center gap-2 rounded-full bg-surface-sunken py-1 pr-3 pl-1">
-              <span className="inline-flex size-5 items-center justify-center rounded-full bg-brand-soft text-[9px] font-semibold text-brand">
-                {currentUser.initials}
+            <div
+              className="flex items-center gap-2 rounded-full border border-border py-1 pr-2.5 pl-1"
+              style={{ fontSize: 12, fontWeight: 500 }}
+            >
+              <span
+                className="inline-flex items-center justify-center rounded-full text-[10px] font-semibold text-ink"
+                style={{ width: 26, height: 26, background: user.avatarColor }}
+              >
+                {user.initials}
               </span>
-              <span className="text-[11px] text-ink">{currentUser.name}</span>
+              <span className="text-ink">{user.name}</span>
             </div>
           </div>
         </header>

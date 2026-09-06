@@ -11,6 +11,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { periodForHour } from "../hooks/useTimePeriod";
 
 function NotFoundComponent() {
   return (
@@ -101,8 +102,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
+  const period = periodForHour(new Date().getHours());
   return (
-    <html lang="en">
+    <html lang="en" data-period={period}>
       <head>
         <HeadContent />
       </head>

@@ -1,11 +1,15 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { LayoutGrid, MessageSquare, Pencil } from "lucide-react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ChevronDown, Moon, Sun } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { currentUser, project } from "@/lib/mockData";
-import { ThemeToggle, useDarkMode } from "@/components/relay/AppShell";
+import { project } from "@/lib/mockData";
+import { periodConfig, useTimePeriod, type Period } from "@/hooks/useTimePeriod";
+import { AmbientIcons } from "@/components/relay/AmbientIcons";
+import { getSessionUser } from "@/lib/auth/functions";
+import { roleHome } from "@/lib/auth/types";
 
 export const Route = createFileRoute("/")({
+  loader: () => getSessionUser(),
   head: () => ({
     meta: [
       { title: "Relay — Project memory for engineering teams" },
@@ -25,81 +29,21 @@ export const Route = createFileRoute("/")({
   component: Landing,
 });
 
-type Period = "dawn" | "day" | "evening" | "night";
-
-const COPY: Record<Period, { label: string; greeting: string; subtext: string }> = {
-  dawn: {
-    label: "Good morning",
-    greeting: `Rise and shine, ${currentUser.firstName}.`,
-    subtext: "Your day is starting. Here's what's waiting.",
-  },
-  day: {
-    label: "Good afternoon",
-    greeting: `Sunshine, ${currentUser.firstName}.`,
-    subtext: `You have ${currentUser.openTickets} open tickets, ${currentUser.openPRs} open PRs, and ${currentUser.pendingReviews} reviews waiting. Here's where things stand.`,
-  },
-  evening: {
-    label: "Good evening",
-    greeting: `Winding down, ${currentUser.firstName}.`,
-    subtext: "3 things unfinished today. Your scratchpad has a draft note.",
-  },
-  night: {
-    label: "Late night",
-    greeting: `Late night, ${currentUser.firstName}.`,
-    subtext: "Don't forget to rest. You can leave a note — it'll be here tomorrow.",
-  },
+const SUBTEXT: Record<Period, string> = {
+  dawn: "Your day is starting. Here's what's waiting.",
+  day: "You have open tickets, open PRs, and reviews waiting. Here's where things stand.",
+  evening: "A few things unfinished today. Your scratchpad has a draft note.",
+  night: "Don't forget to rest. You can leave a note — it'll be here tomorrow.",
 };
-
-function periodForHour(hour: number): Period {
-  if (hour >= 5 && hour <= 8) return "dawn";
-  if (hour >= 9 && hour <= 16) return "day";
-  if (hour >= 17 && hour <= 19) return "evening";
-  return "night";
-}
-
-const TINT: Record<Period, string> = {
-  dawn: "bg-[rgba(255,210,120,0.06)]",
-  day: "bg-transparent",
-  evening: "bg-[rgba(200,100,40,0.06)]",
-  night: "bg-transparent",
-};
-
-const CARDS = [
-  {
-    to: "/dev/work",
-    icon: <LayoutGrid />,
-    tone: "bg-brand-soft text-brand",
-    title: "My work",
-    meta: "7 open · 2 critical",
-  },
-  {
-    to: "/dev/ask",
-    icon: <MessageSquare />,
-    tone: "bg-success-soft text-success",
-    title: "Ask the project",
-    meta: "1,247 tickets indexed",
-  },
-  {
-    to: "/dev/scratchpad",
-    icon: <Pencil />,
-    tone: "bg-warning-soft text-warning",
-    title: "Scratchpad",
-    meta: "1 draft awaiting you",
-  },
-] as const;
 
 function Landing() {
-  const { dark, toggle, setMode } = useDarkMode();
-  const [period, setPeriod] = useState<Period>("day");
+  const period = useTimePeriod();
+  const config = periodConfig[period];
+  const user = Route.useLoaderData();
+  const navigate = useNavigate();
   const [clock, setClock] = useState("");
-
-  useEffect(() => {
-    const now = new Date();
-    const p = periodForHour(now.getHours());
-    setPeriod(p);
-    if (p === "night") setMode(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const [entered, setEntered] = useState(false);
+  const hasEntered = useRef(false);
 
   useEffect(() => {
     const tick = () => {
@@ -120,103 +64,86 @@ function Landing() {
     return () => window.clearInterval(id);
   }, []);
 
-  const copy = COPY[period];
-
-  const simulate = (p: Period) => {
-    setPeriod(p);
-    setMode(p === "night");
+  const handleEnter = () => {
+    if (hasEntered.current) return;
+    hasEntered.current = true;
+    setEntered(true);
+    const dest = user ? roleHome(user.role) : "/login";
+    window.setTimeout(() => navigate({ to: dest }), 400);
   };
 
   return (
-    <div className="relative flex min-h-screen min-w-[1024px] flex-col overflow-hidden bg-background">
-      <div className={cn("pointer-events-none absolute inset-0", TINT[period])} />
-
-      <span
-        aria-hidden
-        className="pointer-events-none absolute top-1/2 -right-5 -translate-y-1/2 font-serif leading-none text-brand opacity-5 select-none"
-        style={{ fontSize: "clamp(200px, 30vw, 320px)" }}
+    <div className={cn("landing-wrapper", entered && "landing-exit")} onWheel={handleEnter}>
+      <div
+        data-land-period={period}
+        className="landing relative flex min-h-screen min-w-[1024px] flex-col overflow-hidden bg-[var(--land-bg)] transition-colors duration-500"
       >
-        R
-      </span>
+        <AmbientIcons period={period} />
 
-      <div className="relative z-10 flex items-center justify-between px-8 pt-6">
-        <span className="font-mono text-[13px] tracking-[3px] text-ink uppercase">
-          Relay
-          <span className="ml-1.5 inline-block size-1.5 rounded-full bg-brand align-middle" />
-        </span>
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] tracking-wide text-mute uppercase">Simulate:</span>
-          <div className="flex overflow-hidden rounded-md border border-border">
-            {(["dawn", "day", "evening", "night"] as Period[]).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => simulate(p)}
-                className={cn(
-                  "px-2.5 py-1 text-[11px] font-medium capitalize transition-colors duration-150",
-                  p === period
-                    ? "bg-brand text-brand-foreground"
-                    : "text-mute hover:bg-surface-sunken hover:text-ink",
-                )}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-          <ThemeToggle dark={dark} toggle={toggle} />
+        <div className="relative z-10 flex items-center justify-between px-8 pt-6">
+          <span className="font-mono text-[13px] tracking-[3px] text-[var(--land-text)] uppercase">
+            Relay
+            <span
+              className="ml-1.5 inline-block size-1.5 rounded-full align-middle"
+              style={{ background: "var(--land-accent)" }}
+            />
+          </span>
+          <span
+            aria-hidden
+            className="inline-flex size-7 items-center justify-center rounded-md border"
+            style={{ borderColor: "var(--land-mute)", color: "var(--land-mute)" }}
+            title="Theme follows the time of day"
+          >
+            {config.isDark ? <Moon className="size-3.5" /> : <Sun className="size-3.5" />}
+          </span>
         </div>
-      </div>
 
-      <div className="relative z-10 flex flex-grow items-center px-8">
-        <div className="w-[55%]">
-          <div className="text-[10px] font-semibold tracking-[2.5px] text-mute uppercase">
-            {copy.label}
-          </div>
-          <h1 className="mt-3 font-serif text-[52px] leading-[1.05] font-normal tracking-[-1.5px] text-ink">
-            {copy.greeting}
-          </h1>
-          <p className="mt-4 max-w-[380px] text-[13px] leading-[1.7] text-mute">
-            {copy.subtext}
-          </p>
+        <div className="relative z-10 flex flex-grow items-center px-8">
+          <div className="w-[55%]">
+            <div
+              className="text-[11px] font-semibold tracking-[2.5px] uppercase"
+              style={{ color: "var(--land-mute)" }}
+            >
+              {config.label}
+            </div>
+            <h1 className="mt-3 font-serif text-[58px] leading-[1.05] font-normal tracking-[-1.5px] text-[var(--land-text)]">
+              {config.greeting}
+              {user ? `, ${user.name.split(" ")[0]}` : ""}.
+            </h1>
+            <p
+              className="mt-4 max-w-[380px] text-[13px] leading-[1.7]"
+              style={{ color: "var(--land-mute)" }}
+            >
+              {SUBTEXT[period]}
+            </p>
 
-          <div className="mt-8 flex gap-2.5">
-            {CARDS.map((card) => (
-              <Link
-                key={card.to}
-                to={card.to}
-                className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3 transition-all duration-150 hover:-translate-y-px hover:border-brand"
-              >
-                <span
-                  className={cn(
-                    "inline-flex size-7 items-center justify-center rounded-md [&_svg]:size-3.5",
-                    card.tone,
-                  )}
-                >
-                  {card.icon}
-                </span>
-                <span>
-                  <span className="block text-[12px] font-semibold text-ink">
-                    {card.title}
-                  </span>
-                  <span className="block text-[10px] text-mute">{card.meta}</span>
-                </span>
-              </Link>
-            ))}
+            <div className="scroll-prompt" onClick={handleEnter}>
+              <p className="scroll-label">{user ? "Scroll to enter" : "Scroll to sign in"}</p>
+              <div className="scroll-arrow">
+                <ChevronDown size={20} />
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="relative z-10 flex h-12 items-center justify-between border-t border-border px-8">
-        <div className="flex items-center gap-2">
-          <span className="size-1.5 rounded-full bg-success" />
-          <span className="text-[11px] text-mute">{clock}</span>
+        <div
+          className="relative z-10 flex h-12 items-center justify-between border-t px-8"
+          style={{ borderColor: "var(--land-mute)", opacity: 0.9 }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="size-1.5 rounded-full bg-success" />
+            <span className="text-[11px]" style={{ color: "var(--land-mute)" }}>
+              {clock}
+            </span>
+          </div>
+          <span
+            className="text-[11px] tracking-wide uppercase"
+            style={{ color: "var(--land-mute)" }}
+          >
+            {project.name} · {project.engagement}
+          </span>
+          <span />
         </div>
-        <span className="text-[10px] tracking-wide text-mute uppercase">
-          {project.name} · {project.engagement}
-        </span>
-        <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[10px] font-semibold text-brand">
-          Developer
-        </span>
       </div>
     </div>
   );

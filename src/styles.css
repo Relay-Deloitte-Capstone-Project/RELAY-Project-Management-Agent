@@ -17,8 +17,7 @@
   --radius-xl: 10px;
   --radius-2xl: 12px;
 
-  --font-sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
@@ -105,12 +104,14 @@
   --sidebar-muted: oklch(0.551 0.023 264.4);
 }
 
-.dark {
+.dark,
+:root[data-period="dawn"],
+:root[data-period="night"] {
   --background: oklch(0.168 0.017 284.5);
   --surface-sunken: oklch(0.198 0.021 284.5);
   --card: oklch(0.225 0.027 284);
   --foreground: oklch(0.933 0.011 286.2);
-  --mute: oklch(0.551 0.023 264.4);
+  --mute: oklch(0.62 0.02 270); /* lighter muted for legible text on dark bg */
   --border: oklch(0.303 0.023 284.9);
 
   --brand: oklch(0.68 0.158 276.9);
@@ -123,6 +124,29 @@
   --warning-strong: oklch(0.85 0.09 91);
   --danger-soft: oklch(0.3 0.07 22);
   --violet-soft: oklch(0.29 0.05 295);
+}
+
+/* Evening keeps the app light, with a faint peachy warmth. */
+:root[data-period="evening"]:not(.dark) {
+  --background: oklch(0.976 0.012 55);
+  --surface-sunken: oklch(0.976 0.012 55);
+}
+
+/* Sidebar active nav accent shifts with the time period. */
+:root {
+  --period-accent: var(--brand);
+}
+:root[data-period="dawn"] {
+  --period-accent: #c084fc;
+}
+:root[data-period="day"] {
+  --period-accent: #1a1fcc;
+}
+:root[data-period="evening"] {
+  --period-accent: #f97316;
+}
+:root[data-period="night"] {
+  --period-accent: #818cf8;
 }
 
 @layer base {
@@ -145,7 +169,7 @@
 }
 
 @utility section-label {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -157,4 +181,160 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--color-brand);
+}
+
+/* ============================================================
+ * LANDING SCREEN — time-of-day palettes, ambient icons,
+ * scroll-to-enter transition. Namespaced under `--land-*` so it
+ * never collides with the app-shell's semantic tokens above.
+ * ============================================================ */
+
+.landing {
+  --land-bg: #f8f6f0;
+  --land-bg2: #edeae0;
+  --land-text: #0d0d0d;
+  --land-mute: #8c8880;
+  --land-accent: #1a1fcc;
+  --land-glow: rgba(26, 31, 204, 0.06);
+  --land-horizon: linear-gradient(to top, #d4e9ff 0%, #f8f6f0 50%);
+  position: relative;
+  isolation: isolate;
+}
+
+.landing[data-land-period="dawn"] {
+  --land-bg: #1a1625;
+  --land-bg2: #221d30;
+  --land-text: #f0ecf8;
+  --land-mute: #9b8fbb;
+  --land-accent: #c084fc;
+  --land-glow: rgba(192, 132, 252, 0.12);
+  --land-horizon: linear-gradient(to top, #3b1f5e 0%, #1a1625 60%);
+}
+
+.landing[data-land-period="day"] {
+  --land-bg: #f8f6f0;
+  --land-bg2: #edeae0;
+  --land-text: #0d0d0d;
+  --land-mute: #8c8880;
+  --land-accent: #1a1fcc;
+  --land-glow: rgba(26, 31, 204, 0.06);
+  --land-horizon: linear-gradient(to top, #d4e9ff 0%, #f8f6f0 50%);
+}
+
+.landing[data-land-period="evening"] {
+  --land-bg: #1c0f05;
+  --land-bg2: #261508;
+  --land-text: #f5ede0;
+  --land-mute: #a8896a;
+  --land-accent: #f97316;
+  --land-glow: rgba(249, 115, 22, 0.15);
+  --land-horizon: linear-gradient(to top, #7c2d0c 0%, #1c0f05 55%);
+}
+
+.landing[data-land-period="night"] {
+  --land-bg: #080810;
+  --land-bg2: #0e0e1a;
+  --land-text: #d8d8f0;
+  --land-mute: #5a5a80;
+  --land-accent: #818cf8;
+  --land-glow: rgba(129, 140, 248, 0.08);
+  --land-horizon: linear-gradient(to top, #0f0f2e 0%, #080810 60%);
+}
+
+.landing::before {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 40%;
+  background: var(--land-horizon);
+  pointer-events: none;
+  z-index: 0;
+  transition: background 0.6s ease;
+}
+
+.ambient-icons {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 45%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ambient-icons svg {
+  position: absolute;
+  color: var(--land-accent);
+  transition: color 0.6s ease;
+}
+
+.scroll-prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 32px;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.scroll-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+  color: var(--land-mute);
+}
+
+.scroll-arrow {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--land-mute);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--land-mute);
+  animation: bob 2s ease-in-out infinite;
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+.landing-wrapper {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  transition:
+    transform 0.7s cubic-bezier(0.76, 0, 0.24, 1),
+    opacity 0.5s ease 0.2s;
+}
+
+.landing-exit {
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Topbar period chip */
+.period-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  background: var(--accent-soft, var(--color-brand-soft));
+  color: var(--accent, var(--color-brand));
 }

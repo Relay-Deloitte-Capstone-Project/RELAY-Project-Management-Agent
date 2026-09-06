@@ -16,6 +16,12 @@ dist-ssr
 .nitro
 *.local
 
+# Env / database
+.env
+prisma/*.db
+prisma/*.db-journal
+src/generated/
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

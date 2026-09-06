@@ -11,7 +11,7 @@ import {
 } from "@/components/relay/primitives";
 import { branches, tickets } from "@/lib/mockData";
 
-export const Route = createFileRoute("/dev/work")({
+export const Route = createFileRoute("/_authenticated/dev/work")({
   head: () => ({
     meta: [
       { title: "My work — Relay" },
@@ -31,8 +31,9 @@ export const Route = createFileRoute("/dev/work")({
 });
 
 function MyWork() {
+  const { user } = Route.useRouteContext();
   return (
-    <AppShell role="developer" title="My work">
+    <AppShell user={user} title="My work">
       <PageSection label="Today">
         <div className="grid grid-cols-3 gap-3">
           <MetricCard label="Open tickets" value={7} tone="warning" />
@@ -51,19 +52,17 @@ function MyWork() {
           <ul>
             <li className="flex items-center gap-3 border-b border-border py-2">
               <TicketKey>KAFKA-16180</TicketKey>
-              <span className="flex-grow text-[12px] text-ink">
-                SASL auth token refresh loop
-              </span>
+              <span className="flex-grow text-[13px] text-ink">SASL auth token refresh loop</span>
               <Chip tone="danger">Critical</Chip>
-              <span className="w-24 text-right text-[10px] text-mute">5 days stale</span>
+              <span className="w-24 text-right text-[11px] text-mute">5 days stale</span>
             </li>
             <li className="flex items-center gap-3 py-2">
               <TicketKey>#16789</TicketKey>
-              <span className="flex-grow text-[12px] text-ink">
+              <span className="flex-grow text-[13px] text-ink">
                 PR awaiting your review from Jun
               </span>
               <Chip tone="warning">Review</Chip>
-              <span className="w-24 text-right text-[10px] text-mute">2 days</span>
+              <span className="w-24 text-right text-[11px] text-mute">2 days</span>
             </li>
           </ul>
         </Panel>
@@ -76,7 +75,7 @@ function MyWork() {
               {branches.map((b) => (
                 <li key={b.name} className="border-b border-border py-2 last:border-0">
                   <BranchName>{b.name}</BranchName>
-                  <div className="mt-0.5 text-[10px] text-mute">
+                  <div className="mt-0.5 text-[11px] text-mute">
                     {b.commitsAhead} commits ahead · last push {b.lastPush}
                   </div>
                 </li>
@@ -88,7 +87,7 @@ function MyWork() {
             title="Assigned tickets"
             icon={<ListChecks className="size-3.5 text-mute" />}
             action={
-              <Link to="/dev/coverage" className="text-[11px] font-medium text-brand">
+              <Link to="/dev/coverage" className="text-[13px] font-medium text-brand">
                 Show more
               </Link>
             }
@@ -100,7 +99,7 @@ function MyWork() {
                   className="flex items-center gap-3 border-b border-border py-2 last:border-0"
                 >
                   <TicketKey>{t.key}</TicketKey>
-                  <span className="flex-grow truncate text-[12px] text-ink">{t.summary}</span>
+                  <span className="flex-grow truncate text-[13px] text-ink">{t.summary}</span>
                   <Chip
                     tone={
                       t.status === "Open"
@@ -121,9 +120,9 @@ function MyWork() {
 
       <PageSection label="Why this is trustworthy">
         <Panel>
-          <p className="text-[12px] leading-relaxed text-mute">
-            This view is assembled from Git, not from a manually updated board. You cannot ship
-            code without committing, so the commit record is always current. It shows work{" "}
+          <p className="text-[13px] leading-relaxed text-mute">
+            This view is assembled from Git, not from a manually updated board. You cannot ship code
+            without committing, so the commit record is always current. It shows work{" "}
             <span className="font-medium text-ink">state</span>, never performance — and needs no
             approval to read.
           </p>

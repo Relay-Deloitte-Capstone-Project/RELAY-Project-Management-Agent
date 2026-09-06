@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // No Postgres server is reachable in this environment (no local install,
+  // no running Docker daemon), so this uses SQLite as a zero-config
+  // substitute. Swap provider to "postgresql" and point DATABASE_URL at a
+  // real server to move to Postgres later — the schema below is unchanged.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  // SQLite has no native enum type, so role is a plain string constrained
+  // to "DEVELOPER" | "MANAGER" | "ADMIN" at the TypeScript layer
+  // (see src/lib/auth/types.ts). Postgres could use a real `Role` enum.
+  role         String
+  initials     String
+  avatarColor  String    @default("#E8EAFF")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

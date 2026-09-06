@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { conversation } from "@/lib/mockData";
 
-export const Route = createFileRoute("/dev/ask")({
+export const Route = createFileRoute("/_authenticated/dev/ask")({
   head: () => ({
     meta: [
       { title: "Ask the project — Relay" },
@@ -24,11 +24,12 @@ export const Route = createFileRoute("/dev/ask")({
 });
 
 function AskProject() {
+  const { user } = Route.useRouteContext();
   const [openCitation, setOpenCitation] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
   return (
-    <AppShell role="developer" title="Ask project" padded={false}>
+    <AppShell user={user} title="Ask project" padded={false}>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6">
         <p className="section-label">Conversation · grounded in 1,247 tickets</p>
 
@@ -49,7 +50,7 @@ function AskProject() {
                 <div className="rounded-lg border border-border bg-surface-sunken px-3.5 py-2.5 text-[13px] text-mute italic">
                   I don&apos;t have grounding for that in this project&apos;s records.
                 </div>
-                <div className="mt-1 text-[10px] text-mute">
+                <div className="mt-1 text-[11px] text-mute">
                   Abstained · 0 sources · 0.9s (timing normalised)
                 </div>
               </div>
@@ -65,7 +66,7 @@ function AskProject() {
                     key={c.key}
                     type="button"
                     onClick={() => setOpenCitation(openCitation === c.key ? null : c.key)}
-                    className="mx-0.5 rounded-[3px] bg-brand-soft px-[5px] py-[1px] font-mono text-[10px] font-semibold text-brand"
+                    className="mx-0.5 rounded-[3px] bg-brand-soft px-[5px] py-[1px] font-mono text-[11px] font-semibold text-brand"
                   >
                     [{c.key}]
                   </button>
@@ -76,18 +77,18 @@ function AskProject() {
                 .map((c) => (
                   <div
                     key={c.key}
-                    className="mt-2 border-l-[3px] border-brand bg-surface-sunken p-2 text-[11px] leading-relaxed text-mute"
+                    className="mt-2 border-l-[3px] border-brand bg-surface-sunken p-2 text-[13px] leading-relaxed text-mute"
                   >
                     <span className="font-mono font-semibold text-brand">{c.key}</span> —{" "}
                     {c.snippet}
                   </div>
                 ))}
-              <div className="mt-1 text-[10px] text-mute">{msg.tier}</div>
+              <div className="mt-1 text-[11px] text-mute">{msg.tier}</div>
             </div>
           );
         })}
 
-        <div className="mt-2 max-w-[80%] rounded-lg border border-border bg-surface-sunken p-3 text-[11px] leading-relaxed text-mute">
+        <div className="mt-2 max-w-[80%] rounded-lg border border-border bg-surface-sunken p-3 text-[13px] leading-relaxed text-mute">
           Permission is checked <span className="font-medium text-ink">before</span> retrieval, and
           each retrieved chunk&apos;s provenance is re-checked against live permissions. Response
           time is normalised, so a denial and a genuine &quot;nothing found&quot; are
@@ -106,11 +107,11 @@ function AskProject() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Ask anything about this project..."
-          className="h-9 flex-grow rounded-md border border-border bg-card px-3 text-[12px] text-ink outline-none transition-colors duration-150 placeholder:text-mute focus:border-brand"
+          className="h-9 flex-grow rounded-md border border-border bg-card px-3 text-[13px] text-ink outline-none transition-colors duration-150 placeholder:text-mute focus:border-brand"
         />
         <button
           type="submit"
-          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-brand px-3.5 text-[12px] font-medium text-brand-foreground transition-transform duration-100 active:scale-[0.98] [&_svg]:size-3.5"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md bg-brand px-3.5 text-[13px] font-medium text-brand-foreground transition-transform duration-100 active:scale-[0.98] [&_svg]:size-3.5"
         >
           Send <ArrowRight />
         </button>

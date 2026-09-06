@@ -10,43 +10,291 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DevWorkRouteImport } from './routes/dev.work'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated.admin'
+import { Route as AuthenticatedDevRouteImport } from './routes/_authenticated.dev'
+import { Route as AuthenticatedMgrRouteImport } from './routes/_authenticated.mgr'
+import { Route as AuthenticatedAdminConfigRouteImport } from './routes/_authenticated.admin.config'
+import { Route as AuthenticatedAdminDashboardRouteImport } from './routes/_authenticated.admin.dashboard'
+import { Route as AuthenticatedAdminIngestionRouteImport } from './routes/_authenticated.admin.ingestion'
+import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated.admin.users'
+import { Route as AuthenticatedDevAskRouteImport } from './routes/_authenticated.dev.ask'
+import { Route as AuthenticatedDevCoverageRouteImport } from './routes/_authenticated.dev.coverage'
+import { Route as AuthenticatedDevEpicsRouteImport } from './routes/_authenticated.dev.epics'
+import { Route as AuthenticatedDevScratchpadRouteImport } from './routes/_authenticated.dev.scratchpad'
+import { Route as AuthenticatedDevWorkRouteImport } from './routes/_authenticated.dev.work'
+import { Route as AuthenticatedMgrAdminRouteImport } from './routes/_authenticated.mgr.admin'
+import { Route as AuthenticatedMgrDashboardRouteImport } from './routes/_authenticated.mgr.dashboard'
+import { Route as AuthenticatedMgrEpicsRouteImport } from './routes/_authenticated.mgr.epics'
+import { Route as AuthenticatedMgrScopeRouteImport } from './routes/_authenticated.mgr.scope'
+import { Route as AuthenticatedMgrTeamRouteImport } from './routes/_authenticated.mgr.team'
+import { Route as AuthenticatedMgrTeamIndexRouteImport } from './routes/_authenticated.mgr.team.index'
+import { Route as AuthenticatedMgrTeamIdRouteImport } from './routes/_authenticated.mgr.team.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DevWorkRoute = DevWorkRouteImport.update({
-  id: '/dev/work',
-  path: '/dev/work',
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedDevRoute = AuthenticatedDevRouteImport.update({
+  id: '/dev',
+  path: '/dev',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedMgrRoute = AuthenticatedMgrRouteImport.update({
+  id: '/mgr',
+  path: '/mgr',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedAdminConfigRoute =
+  AuthenticatedAdminConfigRouteImport.update({
+    id: '/config',
+    path: '/config',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminDashboardRoute =
+  AuthenticatedAdminDashboardRouteImport.update({
+    id: '/dashboard',
+    path: '/dashboard',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminIngestionRoute =
+  AuthenticatedAdminIngestionRouteImport.update({
+    id: '/ingestion',
+    path: '/ingestion',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AuthenticatedAdminRoute,
+} as any)
+const AuthenticatedDevAskRoute = AuthenticatedDevAskRouteImport.update({
+  id: '/ask',
+  path: '/ask',
+  getParentRoute: () => AuthenticatedDevRoute,
+} as any)
+const AuthenticatedDevCoverageRoute =
+  AuthenticatedDevCoverageRouteImport.update({
+    id: '/coverage',
+    path: '/coverage',
+    getParentRoute: () => AuthenticatedDevRoute,
+  } as any)
+const AuthenticatedDevEpicsRoute = AuthenticatedDevEpicsRouteImport.update({
+  id: '/epics',
+  path: '/epics',
+  getParentRoute: () => AuthenticatedDevRoute,
+} as any)
+const AuthenticatedDevScratchpadRoute =
+  AuthenticatedDevScratchpadRouteImport.update({
+    id: '/scratchpad',
+    path: '/scratchpad',
+    getParentRoute: () => AuthenticatedDevRoute,
+  } as any)
+const AuthenticatedDevWorkRoute = AuthenticatedDevWorkRouteImport.update({
+  id: '/work',
+  path: '/work',
+  getParentRoute: () => AuthenticatedDevRoute,
+} as any)
+const AuthenticatedMgrAdminRoute = AuthenticatedMgrAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedMgrRoute,
+} as any)
+const AuthenticatedMgrDashboardRoute =
+  AuthenticatedMgrDashboardRouteImport.update({
+    id: '/dashboard',
+    path: '/dashboard',
+    getParentRoute: () => AuthenticatedMgrRoute,
+  } as any)
+const AuthenticatedMgrEpicsRoute = AuthenticatedMgrEpicsRouteImport.update({
+  id: '/epics',
+  path: '/epics',
+  getParentRoute: () => AuthenticatedMgrRoute,
+} as any)
+const AuthenticatedMgrScopeRoute = AuthenticatedMgrScopeRouteImport.update({
+  id: '/scope',
+  path: '/scope',
+  getParentRoute: () => AuthenticatedMgrRoute,
+} as any)
+const AuthenticatedMgrTeamRoute = AuthenticatedMgrTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => AuthenticatedMgrRoute,
+} as any)
+const AuthenticatedMgrTeamIndexRoute =
+  AuthenticatedMgrTeamIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedMgrTeamRoute,
+  } as any)
+const AuthenticatedMgrTeamIdRoute = AuthenticatedMgrTeamIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AuthenticatedMgrTeamRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/dev/work': typeof DevWorkRoute
+  '/login': typeof LoginRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
+  '/dev': typeof AuthenticatedDevRouteWithChildren
+  '/mgr': typeof AuthenticatedMgrRouteWithChildren
+  '/admin/config': typeof AuthenticatedAdminConfigRoute
+  '/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
+  '/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
+  '/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/dev/ask': typeof AuthenticatedDevAskRoute
+  '/dev/coverage': typeof AuthenticatedDevCoverageRoute
+  '/dev/epics': typeof AuthenticatedDevEpicsRoute
+  '/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
+  '/dev/work': typeof AuthenticatedDevWorkRoute
+  '/mgr/admin': typeof AuthenticatedMgrAdminRoute
+  '/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
+  '/mgr/epics': typeof AuthenticatedMgrEpicsRoute
+  '/mgr/scope': typeof AuthenticatedMgrScopeRoute
+  '/mgr/team': typeof AuthenticatedMgrTeamRouteWithChildren
+  '/mgr/team/$id': typeof AuthenticatedMgrTeamIdRoute
+  '/mgr/team/': typeof AuthenticatedMgrTeamIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/dev/work': typeof DevWorkRoute
+  '/login': typeof LoginRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
+  '/dev': typeof AuthenticatedDevRouteWithChildren
+  '/mgr': typeof AuthenticatedMgrRouteWithChildren
+  '/admin/config': typeof AuthenticatedAdminConfigRoute
+  '/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
+  '/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
+  '/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/dev/ask': typeof AuthenticatedDevAskRoute
+  '/dev/coverage': typeof AuthenticatedDevCoverageRoute
+  '/dev/epics': typeof AuthenticatedDevEpicsRoute
+  '/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
+  '/dev/work': typeof AuthenticatedDevWorkRoute
+  '/mgr/admin': typeof AuthenticatedMgrAdminRoute
+  '/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
+  '/mgr/epics': typeof AuthenticatedMgrEpicsRoute
+  '/mgr/scope': typeof AuthenticatedMgrScopeRoute
+  '/mgr/team/$id': typeof AuthenticatedMgrTeamIdRoute
+  '/mgr/team': typeof AuthenticatedMgrTeamIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/dev/work': typeof DevWorkRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/login': typeof LoginRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
+  '/_authenticated/dev': typeof AuthenticatedDevRouteWithChildren
+  '/_authenticated/mgr': typeof AuthenticatedMgrRouteWithChildren
+  '/_authenticated/admin/config': typeof AuthenticatedAdminConfigRoute
+  '/_authenticated/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
+  '/_authenticated/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
+  '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
+  '/_authenticated/dev/ask': typeof AuthenticatedDevAskRoute
+  '/_authenticated/dev/coverage': typeof AuthenticatedDevCoverageRoute
+  '/_authenticated/dev/epics': typeof AuthenticatedDevEpicsRoute
+  '/_authenticated/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
+  '/_authenticated/dev/work': typeof AuthenticatedDevWorkRoute
+  '/_authenticated/mgr/admin': typeof AuthenticatedMgrAdminRoute
+  '/_authenticated/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
+  '/_authenticated/mgr/epics': typeof AuthenticatedMgrEpicsRoute
+  '/_authenticated/mgr/scope': typeof AuthenticatedMgrScopeRoute
+  '/_authenticated/mgr/team': typeof AuthenticatedMgrTeamRouteWithChildren
+  '/_authenticated/mgr/team/$id': typeof AuthenticatedMgrTeamIdRoute
+  '/_authenticated/mgr/team/': typeof AuthenticatedMgrTeamIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dev/work'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/admin'
+    | '/dev'
+    | '/mgr'
+    | '/admin/config'
+    | '/admin/dashboard'
+    | '/admin/ingestion'
+    | '/admin/users'
+    | '/dev/ask'
+    | '/dev/coverage'
+    | '/dev/epics'
+    | '/dev/scratchpad'
+    | '/dev/work'
+    | '/mgr/admin'
+    | '/mgr/dashboard'
+    | '/mgr/epics'
+    | '/mgr/scope'
+    | '/mgr/team'
+    | '/mgr/team/$id'
+    | '/mgr/team/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dev/work'
-  id: '__root__' | '/' | '/dev/work'
+  to:
+    | '/'
+    | '/login'
+    | '/admin'
+    | '/dev'
+    | '/mgr'
+    | '/admin/config'
+    | '/admin/dashboard'
+    | '/admin/ingestion'
+    | '/admin/users'
+    | '/dev/ask'
+    | '/dev/coverage'
+    | '/dev/epics'
+    | '/dev/scratchpad'
+    | '/dev/work'
+    | '/mgr/admin'
+    | '/mgr/dashboard'
+    | '/mgr/epics'
+    | '/mgr/scope'
+    | '/mgr/team/$id'
+    | '/mgr/team'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/login'
+    | '/_authenticated/admin'
+    | '/_authenticated/dev'
+    | '/_authenticated/mgr'
+    | '/_authenticated/admin/config'
+    | '/_authenticated/admin/dashboard'
+    | '/_authenticated/admin/ingestion'
+    | '/_authenticated/admin/users'
+    | '/_authenticated/dev/ask'
+    | '/_authenticated/dev/coverage'
+    | '/_authenticated/dev/epics'
+    | '/_authenticated/dev/scratchpad'
+    | '/_authenticated/dev/work'
+    | '/_authenticated/mgr/admin'
+    | '/_authenticated/mgr/dashboard'
+    | '/_authenticated/mgr/epics'
+    | '/_authenticated/mgr/scope'
+    | '/_authenticated/mgr/team'
+    | '/_authenticated/mgr/team/$id'
+    | '/_authenticated/mgr/team/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  DevWorkRoute: typeof DevWorkRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -58,19 +306,244 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dev/work': {
-      id: '/dev/work'
-      path: '/dev/work'
-      fullPath: '/dev/work'
-      preLoaderRoute: typeof DevWorkRouteImport
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/dev': {
+      id: '/_authenticated/dev'
+      path: '/dev'
+      fullPath: '/dev'
+      preLoaderRoute: typeof AuthenticatedDevRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/mgr': {
+      id: '/_authenticated/mgr'
+      path: '/mgr'
+      fullPath: '/mgr'
+      preLoaderRoute: typeof AuthenticatedMgrRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/admin/config': {
+      id: '/_authenticated/admin/config'
+      path: '/config'
+      fullPath: '/admin/config'
+      preLoaderRoute: typeof AuthenticatedAdminConfigRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/dashboard': {
+      id: '/_authenticated/admin/dashboard'
+      path: '/dashboard'
+      fullPath: '/admin/dashboard'
+      preLoaderRoute: typeof AuthenticatedAdminDashboardRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/ingestion': {
+      id: '/_authenticated/admin/ingestion'
+      path: '/ingestion'
+      fullPath: '/admin/ingestion'
+      preLoaderRoute: typeof AuthenticatedAdminIngestionRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/users': {
+      id: '/_authenticated/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/dev/ask': {
+      id: '/_authenticated/dev/ask'
+      path: '/ask'
+      fullPath: '/dev/ask'
+      preLoaderRoute: typeof AuthenticatedDevAskRouteImport
+      parentRoute: typeof AuthenticatedDevRoute
+    }
+    '/_authenticated/dev/coverage': {
+      id: '/_authenticated/dev/coverage'
+      path: '/coverage'
+      fullPath: '/dev/coverage'
+      preLoaderRoute: typeof AuthenticatedDevCoverageRouteImport
+      parentRoute: typeof AuthenticatedDevRoute
+    }
+    '/_authenticated/dev/epics': {
+      id: '/_authenticated/dev/epics'
+      path: '/epics'
+      fullPath: '/dev/epics'
+      preLoaderRoute: typeof AuthenticatedDevEpicsRouteImport
+      parentRoute: typeof AuthenticatedDevRoute
+    }
+    '/_authenticated/dev/scratchpad': {
+      id: '/_authenticated/dev/scratchpad'
+      path: '/scratchpad'
+      fullPath: '/dev/scratchpad'
+      preLoaderRoute: typeof AuthenticatedDevScratchpadRouteImport
+      parentRoute: typeof AuthenticatedDevRoute
+    }
+    '/_authenticated/dev/work': {
+      id: '/_authenticated/dev/work'
+      path: '/work'
+      fullPath: '/dev/work'
+      preLoaderRoute: typeof AuthenticatedDevWorkRouteImport
+      parentRoute: typeof AuthenticatedDevRoute
+    }
+    '/_authenticated/mgr/admin': {
+      id: '/_authenticated/mgr/admin'
+      path: '/admin'
+      fullPath: '/mgr/admin'
+      preLoaderRoute: typeof AuthenticatedMgrAdminRouteImport
+      parentRoute: typeof AuthenticatedMgrRoute
+    }
+    '/_authenticated/mgr/dashboard': {
+      id: '/_authenticated/mgr/dashboard'
+      path: '/dashboard'
+      fullPath: '/mgr/dashboard'
+      preLoaderRoute: typeof AuthenticatedMgrDashboardRouteImport
+      parentRoute: typeof AuthenticatedMgrRoute
+    }
+    '/_authenticated/mgr/epics': {
+      id: '/_authenticated/mgr/epics'
+      path: '/epics'
+      fullPath: '/mgr/epics'
+      preLoaderRoute: typeof AuthenticatedMgrEpicsRouteImport
+      parentRoute: typeof AuthenticatedMgrRoute
+    }
+    '/_authenticated/mgr/scope': {
+      id: '/_authenticated/mgr/scope'
+      path: '/scope'
+      fullPath: '/mgr/scope'
+      preLoaderRoute: typeof AuthenticatedMgrScopeRouteImport
+      parentRoute: typeof AuthenticatedMgrRoute
+    }
+    '/_authenticated/mgr/team': {
+      id: '/_authenticated/mgr/team'
+      path: '/team'
+      fullPath: '/mgr/team'
+      preLoaderRoute: typeof AuthenticatedMgrTeamRouteImport
+      parentRoute: typeof AuthenticatedMgrRoute
+    }
+    '/_authenticated/mgr/team/': {
+      id: '/_authenticated/mgr/team/'
+      path: '/'
+      fullPath: '/mgr/team/'
+      preLoaderRoute: typeof AuthenticatedMgrTeamIndexRouteImport
+      parentRoute: typeof AuthenticatedMgrTeamRoute
+    }
+    '/_authenticated/mgr/team/$id': {
+      id: '/_authenticated/mgr/team/$id'
+      path: '/$id'
+      fullPath: '/mgr/team/$id'
+      preLoaderRoute: typeof AuthenticatedMgrTeamIdRouteImport
+      parentRoute: typeof AuthenticatedMgrTeamRoute
     }
   }
 }
 
+interface AuthenticatedAdminRouteChildren {
+  AuthenticatedAdminConfigRoute: typeof AuthenticatedAdminConfigRoute
+  AuthenticatedAdminDashboardRoute: typeof AuthenticatedAdminDashboardRoute
+  AuthenticatedAdminIngestionRoute: typeof AuthenticatedAdminIngestionRoute
+  AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
+}
+
+const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
+  AuthenticatedAdminConfigRoute: AuthenticatedAdminConfigRoute,
+  AuthenticatedAdminDashboardRoute: AuthenticatedAdminDashboardRoute,
+  AuthenticatedAdminIngestionRoute: AuthenticatedAdminIngestionRoute,
+  AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
+}
+
+const AuthenticatedAdminRouteWithChildren =
+  AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
+
+interface AuthenticatedDevRouteChildren {
+  AuthenticatedDevAskRoute: typeof AuthenticatedDevAskRoute
+  AuthenticatedDevCoverageRoute: typeof AuthenticatedDevCoverageRoute
+  AuthenticatedDevEpicsRoute: typeof AuthenticatedDevEpicsRoute
+  AuthenticatedDevScratchpadRoute: typeof AuthenticatedDevScratchpadRoute
+  AuthenticatedDevWorkRoute: typeof AuthenticatedDevWorkRoute
+}
+
+const AuthenticatedDevRouteChildren: AuthenticatedDevRouteChildren = {
+  AuthenticatedDevAskRoute: AuthenticatedDevAskRoute,
+  AuthenticatedDevCoverageRoute: AuthenticatedDevCoverageRoute,
+  AuthenticatedDevEpicsRoute: AuthenticatedDevEpicsRoute,
+  AuthenticatedDevScratchpadRoute: AuthenticatedDevScratchpadRoute,
+  AuthenticatedDevWorkRoute: AuthenticatedDevWorkRoute,
+}
+
+const AuthenticatedDevRouteWithChildren =
+  AuthenticatedDevRoute._addFileChildren(AuthenticatedDevRouteChildren)
+
+interface AuthenticatedMgrTeamRouteChildren {
+  AuthenticatedMgrTeamIdRoute: typeof AuthenticatedMgrTeamIdRoute
+  AuthenticatedMgrTeamIndexRoute: typeof AuthenticatedMgrTeamIndexRoute
+}
+
+const AuthenticatedMgrTeamRouteChildren: AuthenticatedMgrTeamRouteChildren = {
+  AuthenticatedMgrTeamIdRoute: AuthenticatedMgrTeamIdRoute,
+  AuthenticatedMgrTeamIndexRoute: AuthenticatedMgrTeamIndexRoute,
+}
+
+const AuthenticatedMgrTeamRouteWithChildren =
+  AuthenticatedMgrTeamRoute._addFileChildren(AuthenticatedMgrTeamRouteChildren)
+
+interface AuthenticatedMgrRouteChildren {
+  AuthenticatedMgrAdminRoute: typeof AuthenticatedMgrAdminRoute
+  AuthenticatedMgrDashboardRoute: typeof AuthenticatedMgrDashboardRoute
+  AuthenticatedMgrEpicsRoute: typeof AuthenticatedMgrEpicsRoute
+  AuthenticatedMgrScopeRoute: typeof AuthenticatedMgrScopeRoute
+  AuthenticatedMgrTeamRoute: typeof AuthenticatedMgrTeamRouteWithChildren
+}
+
+const AuthenticatedMgrRouteChildren: AuthenticatedMgrRouteChildren = {
+  AuthenticatedMgrAdminRoute: AuthenticatedMgrAdminRoute,
+  AuthenticatedMgrDashboardRoute: AuthenticatedMgrDashboardRoute,
+  AuthenticatedMgrEpicsRoute: AuthenticatedMgrEpicsRoute,
+  AuthenticatedMgrScopeRoute: AuthenticatedMgrScopeRoute,
+  AuthenticatedMgrTeamRoute: AuthenticatedMgrTeamRouteWithChildren,
+}
+
+const AuthenticatedMgrRouteWithChildren =
+  AuthenticatedMgrRoute._addFileChildren(AuthenticatedMgrRouteChildren)
+
+interface AuthenticatedRouteChildren {
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
+  AuthenticatedDevRoute: typeof AuthenticatedDevRouteWithChildren
+  AuthenticatedMgrRoute: typeof AuthenticatedMgrRouteWithChildren
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
+  AuthenticatedDevRoute: AuthenticatedDevRouteWithChildren,
+  AuthenticatedMgrRoute: AuthenticatedMgrRouteWithChildren,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  DevWorkRoute: DevWorkRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
