@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: relay-postgres
+    environment:
+      POSTGRES_USER: pm_user
+      POSTGRES_PASSWORD: pm_pass
+      POSTGRES_DB: relay_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./zone3.sql:/docker-entrypoint-initdb.d/zone3.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pm_user -d relay_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

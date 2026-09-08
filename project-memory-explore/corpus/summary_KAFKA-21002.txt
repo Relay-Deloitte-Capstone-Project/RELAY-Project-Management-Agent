@@ -1,0 +1,3 @@
+Provider: groq
+
+The change for ticket KAFKA‑21002, authored by majialong, is a test‑code refactor that removes the Hamcrest library from the org.apache.kafka.streams package. All existing Hamcrest imports and assertions in several test classes (e.g., StreamsBuilderTest, KafkaStreamsTest, StreamsConfigTest, TopologyTest) were replaced with equivalent JUnit assertions, eliminating an unnecessary test dependency. This migration does not alter any production functionality; it simply cleans up the test suite and simplifies the build. No separate pull request was recorded for this work.

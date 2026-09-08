@@ -6,8 +6,9 @@ import { roleHome } from "@/lib/auth/types";
 
 const DEMO_ACCOUNTS = [
   { role: "Developer", name: "Akshar", email: "akshar@relay.dev" },
-  { role: "Manager", name: "Anya", email: "anya@relay.dev" },
-  { role: "Admin", name: "Adveita", email: "adveita@relay.dev" },
+  { role: "Manager", name: "Adveita", email: "adveita@relay.dev" },
+  { role: "Admin", name: "Anya", email: "anya@relay.dev" },
+  { role: "Developer (on leave)", name: "Agrim", email: "agrim@relay.dev" },
 ] as const;
 
 export function LoginForm({ redirectTo }: { redirectTo: string | undefined }) {

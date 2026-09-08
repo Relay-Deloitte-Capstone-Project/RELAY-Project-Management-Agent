@@ -13,7 +13,7 @@ export const tickets = [
     status: "In progress",
     priority: "High",
     type: "Bug",
-    assignee: "Ravi Gupta",
+    assignee: "Agrim_Gairola",
     staleDays: 0,
   },
   {
@@ -22,7 +22,7 @@ export const tickets = [
     status: "Open",
     priority: "Critical",
     type: "Bug",
-    assignee: "Ravi Gupta",
+    assignee: "Agrim_Gairola",
     staleDays: 5,
   },
   {
@@ -31,7 +31,7 @@ export const tickets = [
     status: "In review",
     priority: "Medium",
     type: "Task",
-    assignee: "Ravi Gupta",
+    assignee: "Agrim_Gairola",
     staleDays: 0,
   },
 ];
@@ -76,21 +76,21 @@ export const branches = [
 
 export const teamMembers = [
   {
-    id: "ravi",
-    name: "Ravi Gupta",
-    initials: "RG",
+    id: "agrim",
+    name: "Agrim_Gairola",
+    initials: "AG",
     role: "Backend developer",
-    lastCommit: "2h ago",
+    lastCommit: "24d ago",
     tickets: 7,
     prs: 3,
     reviews: 2,
-    onLeave: false,
+    onLeave: true,
     tone: "brand" as const,
   },
   {
-    id: "jun",
-    name: "Jun Rao",
-    initials: "JR",
+    id: "shubhr",
+    name: "Shubhr Aryan",
+    initials: "SA",
     role: "Core systems",
     lastCommit: "6h ago",
     tickets: 4,
@@ -101,20 +101,20 @@ export const teamMembers = [
   },
   {
     id: "jason",
-    name: "Jason Gustafson",
-    initials: "JG",
+    name: "Jason Maro",
+    initials: "JM",
     role: "Consumer team",
     lastCommit: "1d ago",
     tickets: 5,
     prs: 2,
     reviews: 1,
-    onLeave: true,
+    onLeave: false,
     tone: "warning" as const,
   },
   {
-    id: "david",
-    name: "David Arthur",
-    initials: "DA",
+    id: "priya",
+    name: "Priya Kumar",
+    initials: "PK",
     role: "Storage",
     lastCommit: "5d ago",
     tickets: 3,
@@ -124,106 +124,6 @@ export const teamMembers = [
     tone: "violet" as const,
   },
 ];
-
-export const handoverBriefs: Record<
-  string,
-  {
-    tickets: { key: string; summary: string; status: string; stale: string }[];
-    branches: { name: string; commitsAhead: number; lastPush: string }[];
-    reviews: { key: string; summary: string; from: string; waiting: string }[];
-  }
-> = {
-  ravi: {
-    tickets: [
-      {
-        key: "KAFKA-16245",
-        summary: "Consumer group rebalance timeout on large clusters",
-        status: "In progress",
-        stale: "today",
-      },
-      {
-        key: "KAFKA-16180",
-        summary: "Fix SASL auth token refresh loop",
-        status: "Open",
-        stale: "5 days stale",
-      },
-    ],
-    branches: [
-      { name: "fix/kafka-16245-rebalance", commitsAhead: 3, lastPush: "2h ago" },
-      { name: "fix/kafka-16180-auth", commitsAhead: 1, lastPush: "3d ago" },
-    ],
-    reviews: [
-      {
-        key: "#16789",
-        summary: "Add grace window to SASL token rotation",
-        from: "Jun Rao",
-        waiting: "2 days",
-      },
-    ],
-  },
-  jun: {
-    tickets: [
-      {
-        key: "KAFKA-16301",
-        summary: "Add custom dashboard for partition health",
-        status: "Open",
-        stale: "1 day",
-      },
-      {
-        key: "KAFKA-16112",
-        summary: "KRaft controller failover latency regression",
-        status: "In review",
-        stale: "today",
-      },
-    ],
-    branches: [{ name: "feat/kraft-failover-latency", commitsAhead: 6, lastPush: "6h ago" }],
-    reviews: [
-      {
-        key: "#16801",
-        summary: "Consumer rebalance timeout fix",
-        from: "Ravi Gupta",
-        waiting: "4 hours",
-      },
-    ],
-  },
-  jason: {
-    tickets: [
-      {
-        key: "KAFKA-16289",
-        summary: "Extend health check to include rack awareness",
-        status: "Open",
-        stale: "3 days stale",
-      },
-      {
-        key: "KAFKA-16204",
-        summary: "Consumer group protocol v2 assignor edge cases",
-        status: "In progress",
-        stale: "2 days",
-      },
-    ],
-    branches: [{ name: "feat/consumer-protocol-v2-assignor", commitsAhead: 4, lastPush: "1d ago" }],
-    reviews: [
-      {
-        key: "#16744",
-        summary: "Rack-aware health check probes",
-        from: "David Arthur",
-        waiting: "3 days",
-      },
-    ],
-  },
-  david: {
-    tickets: [
-      {
-        key: "KAFKA-15790",
-        summary: "Broker shutdown hangs on unclean log dir",
-        status: "Open",
-        stale: "6 days stale",
-      },
-    ],
-    branches: [{ name: "fix/tiered-storage-retention", commitsAhead: 2, lastPush: "5d ago" }],
-    reviews: [],
-  },
-};
 
 export type HandoverSituation = "leave" | "leaving" | "onboarding";
 
@@ -250,39 +150,66 @@ export const handoverDetails: Record<
     recommendations: string[];
   }
 > = {
-  ravi: {
-    activeSince: "Mar 2024",
+  agrim: {
+    activeSince: "Jan 2025",
     tickets: [
       {
         key: "KAFKA-16180",
         title: "SASL auth token refresh loop",
         priority: "Critical",
-        note: "No assignee coverage · Last updated 5d ago",
+        note: "Blocked · No assignee coverage · last updated 5d ago",
       },
       {
         key: "KAFKA-16245",
         title: "Consumer group rebalance timeout",
         priority: "High",
-        note: "Branch: fix/kafka-16245-rebalance · 3 commits",
+        note: "In progress · branch fix/kafka-16245-rebalance · 3 commits",
       },
       {
         key: "KAFKA-16092",
         title: "Add metrics for partition reassignment",
         priority: "Review",
-        note: "In review · Jun is reviewing",
+        note: "In progress · No description · No comments",
       },
       {
         key: "KAFKA-15990",
         title: "Update consumer offset manager docs",
         priority: "Low",
-        note: "Open · not started",
+        note: "To do · not started",
+      },
+      {
+        key: "KAFKA-16410",
+        title: "Document tiered storage retention semantics",
+        priority: "Low",
+        note: "To do · not started",
+      },
+      {
+        key: "KAFKA-16422",
+        title: "Reduce controller memory on 10k-partition clusters",
+        priority: "Review",
+        note: "To do · not started",
+      },
+      {
+        key: "KAFKA-16437",
+        title: "Add rack-awareness to partition assignor",
+        priority: "High",
+        note: "To do · not started",
       },
     ],
     branches: [
       { name: "fix/kafka-16245", commitsAhead: 3, lastPush: "2h ago", state: "mid-flight" },
       { name: "fix/kafka-16180", commitsAhead: 1, lastPush: "3d ago", state: "stale" },
+      {
+        name: "fix/kafka-16092-partition-metrics",
+        commitsAhead: 2,
+        lastPush: "6d ago",
+        state: "stale",
+      },
     ],
-    prsAwaiting: [{ key: "#16789", title: "Jun's PR awaiting Ravi's review", waitingDays: 2 }],
+    prsAwaiting: [
+      { key: "#16789", title: "Add grace window to SASL token rotation", waitingDays: 2 },
+      { key: "#16825", title: "Partition reassignment throttle config", waitingDays: 1 },
+    ],
     recentActivity: [
       {
         sha: "a3f2b1c",
@@ -303,7 +230,7 @@ export const handoverDetails: Record<
     knowledgeRisks: [
       {
         level: "high",
-        title: "SASL auth module — Ravi is the sole contributor to 87% of commits",
+        title: "SASL auth module — Agrim is the sole contributor to 87% of commits",
         detail:
           "No other team member has touched this module in the last 6 months. If his branch doesn't merge, this is unrecoverable context.",
       },
@@ -311,7 +238,7 @@ export const handoverDetails: Record<
         level: "medium",
         title: "Consumer rebalance fix — only 1 PR review comment thread explaining the approach",
         detail:
-          "Ravi responded to Jun's question in PR #16789 but the reasoning was not captured in a scratchpad note.",
+          "Agrim responded to a question in PR #16789 but the reasoning was not captured in a scratchpad note.",
       },
       {
         level: "low",
@@ -326,12 +253,13 @@ export const handoverDetails: Record<
       { label: "Partition metrics", value: 74 },
     ],
     recommendations: [
-      "Ask Ravi to approve the auto-draft note from PR #16801 (currently pending in his scratchpad)",
+      "Ask Agrim to approve the auto-draft note from PR #16801 (currently pending in his scratchpad)",
       "Schedule a 30-min knowledge transfer for the SASL module with whoever takes over",
       "The unmerged fix/kafka-16180 branch needs a decision: merge as-is or close with a note",
+      "Anya commented on KAFKA-16092 on 2026-08-12 asking someone to pick up this ticket — no reply yet",
     ],
   },
-  jun: {
+  shubhr: {
     activeSince: "Jan 2023",
     tickets: [
       {
@@ -355,7 +283,7 @@ export const handoverDetails: Record<
         state: "mid-flight",
       },
     ],
-    prsAwaiting: [{ key: "#16801", title: "Ravi's PR awaiting Jun's review", waitingDays: 0 }],
+    prsAwaiting: [{ key: "#16801", title: "Agrim's PR awaiting review", waitingDays: 0 }],
     recentActivity: [
       { sha: "f0a91cd", message: "Reworked controller failover retry backoff", when: "6h ago" },
       {
@@ -367,7 +295,7 @@ export const handoverDetails: Record<
     knowledgeRisks: [
       {
         level: "medium",
-        title: "KRaft failover module — Jun is sole reviewer on 6 of the last 8 PRs",
+        title: "KRaft failover module — Shubhr is sole reviewer on 6 of the last 8 PRs",
         detail:
           "Failover logic is well-commented in code but the retry-backoff rationale lives only in PR discussion.",
       },
@@ -383,7 +311,7 @@ export const handoverDetails: Record<
     ],
     recommendations: [
       "Capture the retry-backoff rationale from PR #16801 discussion into a scratchpad note",
-      "Confirm someone else can review Ravi's pending PR while Jun is out",
+      "Confirm someone else can review Agrim's pending PR while Shubhr is out",
     ],
   },
   jason: {
@@ -433,11 +361,11 @@ export const handoverDetails: Record<
     ],
     docCoverage: [{ label: "Consumer protocol v2 assignor", value: 15 }],
     recommendations: [
-      "Ask Jason to walk through the assignor edge cases before his leave starts",
+      "Ask Jason to walk through the assignor edge cases with another developer for redundancy",
       "Assign a reviewer to #16744 — it's been waiting 3 days",
     ],
   },
-  david: {
+  priya: {
     activeSince: "Sep 2021",
     tickets: [
       {
@@ -459,7 +387,7 @@ export const handoverDetails: Record<
         level: "medium",
         title: "Tiered storage retention — branch stale for 5 days, no PR opened yet",
         detail:
-          "David is the only one who has touched tiered storage retention semantics in the last 3 months.",
+          "Priya is the only one who has touched tiered storage retention semantics in the last 3 months.",
       },
     ],
     docCoverage: [{ label: "Tiered storage retention", value: 45 }],
@@ -588,13 +516,12 @@ export const permissions = [
     lastSync: "2 min ago",
   },
   {
-    user: "Ravi Gupta",
+    user: "Agrim_Gairola",
     role: "Developer",
     jira: true,
     github: false,
     lastSync: "8 min ago",
   },
-  { user: "Jun Rao", role: "Developer", jira: true, github: true, lastSync: "2 min ago" },
   { user: "Ananya Iyer", role: "PM", jira: true, github: true, lastSync: "2 min ago" },
 ];
 
@@ -718,22 +645,13 @@ export const systemServices = [
 
 export const allUsers = [
   {
-    name: "Ravi Gupta",
-    initials: "RG",
-    email: "ravi.gupta@relay.dev",
+    name: "Agrim_Gairola",
+    initials: "AG",
+    email: "agrim@relay.dev",
     role: "Developer",
     projects: 1,
-    status: "Active",
-    lastSeen: "2h ago",
-  },
-  {
-    name: "Jun Rao",
-    initials: "JR",
-    email: "jun.rao@relay.dev",
-    role: "Developer",
-    projects: 2,
-    status: "Active",
-    lastSeen: "6h ago",
+    status: "On leave",
+    lastSeen: "6d ago",
   },
   {
     name: "Ananya Iyer",
@@ -745,12 +663,12 @@ export const allUsers = [
     lastSeen: "20m ago",
   },
   {
-    name: "Jason Gustafson",
-    initials: "JG",
-    email: "jason.g@relay.dev",
+    name: "Jason Maro",
+    initials: "JM",
+    email: "jason@relay.dev",
     role: "Developer",
     projects: 1,
-    status: "On leave",
+    status: "Active",
     lastSeen: "1d ago",
   },
   {

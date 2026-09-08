@@ -1,0 +1,61 @@
+You are a technical documentation assistant. A project manager needs to understand what work was done for ticket KAFKA-21002.
+
+COMMITS:
+Commit 3d7ef7f by majialong (2026-09-04):
+KAFKA-21002: Remove hamcrest from org.apache.kafka.streams package (#23337)
+
+Remove hamcrest from `StreamsBuilderTest` by migrating its assertions to
+JUnit.
+
+Reviewers: Ken Huang <s7133700@gmail.com>
+Changed files:
+  - streams/src/test/java/org/apache/kafka/streams/KafkaStreamsTest.java:
+@@ -107,14 +107,9 @@
+ import static org.apache.kafka.streams.utils.TestUtils.safeUniqueTestName;
+ import static org.apache.kafka.streams.utils.TestUtils.waitForApplicationState;
+ import static org.apache.kafka.test.TestUtils.waitForCondition;
+-import static org.hamcrest.CoreMatchers.hasItem;
+-import static org.hamcrest.CoreMatchers.not;
+-import static org.hamcrest.MatcherAssert.assertThat;
+-import...
+  - streams/src/test/java/org/apache/kafka/streams/StreamsBuilderTest.java:
+@@ -75,8 +75,6 @@
+ import org.apache.kafka.test.MockValueJoiner;
+ import org.apache.kafka.test.StreamsTestUtils;
+ 
+-import org.hamcrest.CoreMatchers;
+-import org.hamcrest.Matchers;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.Timeout;
+@@ -104,12 +102,9 @@
+ import static org.apache.kafka.streams.state.Stores.timestampedKeyValueStoreBuil...
+  - streams/src/test/java/org/apache/kafka/streams/StreamsConfigTest.java:
+@@ -89,11 +89,6 @@
+ import static org.apache.kafka.streams.StreamsConfig.producerPrefix;
+ import static org.apache.kafka.streams.internals.StreamsConfigUtils.totalCacheSize;
+ import static org.apache.kafka.test.StreamsTestUtils.getStreamsConfig;
+-import static org.hamcrest.CoreMatchers.containsString;
+-import static org.hamcrest.CoreMatchers.is;
+-import static org.hamcrest.CoreMatchers.nullValue;
+...
+  - streams/src/test/java/org/apache/kafka/streams/TopologyTest.java:
+@@ -54,7 +54,6 @@
+ import org.apache.kafka.test.MockValueJoiner;
+ import org.apache.kafka.test.StreamsTestUtils;
+ 
+-import org.hamcrest.Matchers;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.api.Timeout;
+@@ -81,11 +80,11 @@
+ import static org.apache.kafka.streams.StreamsConfig.PROCESSOR_WRAPPER_CLASS_CONFIG;
+ import static org.apache.kafka...
+
+
+PULL REQUESTS:
+(no PRs found)
+
+TASK: Write a 3-5 sentence plain-language summary of what was built, changed, or fixed. Mention the author and the type of change (bug fix, feature, refactor, test migration, etc.). If multiple commits/PRs exist, synthesize them into one coherent narrative.
+
+SUMMARY:

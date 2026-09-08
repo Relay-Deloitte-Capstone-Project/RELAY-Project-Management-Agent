@@ -12,19 +12,19 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  name         String
-  email        String    @unique
-  passwordHash String
+  id              String           @id @default(cuid())
+  name            String
+  email           String           @unique
+  passwordHash    String
   // SQLite has no native enum type, so role is a plain string constrained
   // to "DEVELOPER" | "MANAGER" | "ADMIN" at the TypeScript layer
   // (see src/lib/auth/types.ts). Postgres could use a real `Role` enum.
-  role         String
-  initials     String
-  avatarColor  String    @default("#E8EAFF")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  sessions     Session[]
+  role            String
+  initials        String
+  avatarColor     String           @default("#E8EAFF")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  sessions        Session[]
 }
 
 model Session {
@@ -35,3 +35,9 @@ model Session {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+// Scratchpad notes moved to zone3.scratchpad_notes (Postgres) — see
+// backend/api/scratchpad.py and database/zone3.sql. That version has the
+// richer draft -> approved -> promoted model with PR provenance and
+// full-text search that TASK_zone3_sessions.md called for; this SQLite model
+// didn't have those.

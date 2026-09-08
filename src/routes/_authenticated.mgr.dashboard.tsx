@@ -1,7 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Shield, TriangleAlert } from "lucide-react";
 import { AppShell } from "@/components/relay/AppShell";
+import { EmployeeBreakdown } from "@/components/relay/EmployeeBreakdown";
 import { MetricCard, PageSection, Panel, ProgressRow } from "@/components/relay/primitives";
+import { SprintBurndown } from "@/components/relay/SprintBurndown";
 import { riskSignals, scopeHealth, weeklyActivity } from "@/lib/mockData";
 
 export const Route = createFileRoute("/_authenticated/mgr/dashboard")({
@@ -39,6 +41,13 @@ function ManagerDashboard() {
           <MetricCard label="Open tickets" value={34} tone="warning" />
           <MetricCard label="Ticket coverage" value="62%" tone="brand" />
           <MetricCard label="Scope alerts" value={3} tone="danger" />
+        </div>
+      </PageSection>
+
+      <PageSection label="Sprint">
+        <div className="grid grid-cols-2 gap-4">
+          <SprintBurndown />
+          <EmployeeBreakdown />
         </div>
       </PageSection>
 

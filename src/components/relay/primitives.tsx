@@ -234,11 +234,13 @@ export function GhostButton({
   children,
   tone = "neutral",
   onClick,
+  disabled,
   className,
 }: {
   children: ReactNode;
   tone?: Tone;
   onClick?: () => void;
+  disabled?: boolean;
   className?: string;
 }) {
   const border: Record<Tone, string> = {
@@ -253,8 +255,9 @@ export function GhostButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-all duration-100 active:scale-[0.98] [&_svg]:size-3",
+        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-all duration-100 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3",
         border[tone],
         className,
       )}

@@ -11,14 +11,14 @@ async function main() {
     {
       name: "Anya Gupta",
       email: "anya@relay.dev",
-      role: "MANAGER",
+      role: "ADMIN",
       initials: "AG",
       avatarColor: "#FEF3C7",
     },
     {
       name: "Adveita Bhargava",
       email: "adveita@relay.dev",
-      role: "ADMIN",
+      role: "MANAGER",
       initials: "AB",
       avatarColor: "#F3F0FF",
     },
@@ -30,62 +30,48 @@ async function main() {
       avatarColor: "#E8EAFF",
     },
     {
-      name: "Ravi Gupta",
-      email: "ravi@relay.dev",
+      name: "Agrim_Gairola",
+      email: "agrim@relay.dev",
       role: "DEVELOPER",
-      initials: "RG",
+      initials: "AG",
       avatarColor: "#DCFCE7",
     },
     {
-      name: "Jun Rao",
-      email: "jun@relay.dev",
+      name: "Shubhr Aryan",
+      email: "shubhr@relay.dev",
       role: "DEVELOPER",
-      initials: "JR",
+      initials: "SA",
       avatarColor: "#E0F2FE",
     },
     {
-      name: "Jason Gustafson",
-      email: "jason@relay.dev",
-      role: "DEVELOPER",
-      initials: "JG",
-      avatarColor: "#FDE8FF",
-    },
-    {
-      name: "David Arthur",
-      email: "david@relay.dev",
-      role: "DEVELOPER",
-      initials: "DA",
-      avatarColor: "#FEF2F2",
-    },
-    {
-      name: "Priya Sharma",
+      name: "Priya Kumar",
       email: "priya@relay.dev",
       role: "DEVELOPER",
-      initials: "PS",
+      initials: "PK",
       avatarColor: "#ECFDF5",
     },
     {
-      name: "Omar Hassan",
-      email: "omar@relay.dev",
+      name: "Jason Maro",
+      email: "jason@relay.dev",
       role: "DEVELOPER",
-      initials: "OH",
-      avatarColor: "#FFF7ED",
+      initials: "JM",
+      avatarColor: "#FDE8FF",
     },
     {
-      name: "Seo-Yeon Park",
-      email: "seoyeon@relay.dev",
+      name: "Omar K",
+      email: "omar@relay.dev",
       role: "DEVELOPER",
-      initials: "SP",
-      avatarColor: "#F0FDF4",
+      initials: "OK",
+      avatarColor: "#FFF7ED",
     },
   ];
 
+  // Local demo data, not anything worth preserving across reseeds — wipe and
+  // recreate so a roster change (renames, role swaps, dropped people) always
+  // actually takes effect, rather than being silently ignored by an upsert.
+  await prisma.user.deleteMany({});
   for (const u of users) {
-    await prisma.user.upsert({
-      where: { email: u.email },
-      update: {},
-      create: { ...u, passwordHash: pw },
-    });
+    await prisma.user.create({ data: { ...u, passwordHash: pw } });
   }
 
   console.log(`Seeded ${users.length} users.`);

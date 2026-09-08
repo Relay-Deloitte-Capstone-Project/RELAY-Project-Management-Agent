@@ -1,0 +1,3 @@
+Provider: groq
+
+The change, authored by **Tushar Saini**, fixes a bug in Kafka’s log‑segment shutdown logic. When `log.preallocate=true`, the broker previously flushed the file **before** truncating the pre‑allocated space, so the final file length wasn’t persisted; a clean shutdown could leave an oversized `.log` file that caused recovery errors on restart. The fix reorders the operations in `FileRecords.close()` so that `trim()` (the truncation) runs first, followed by `flush()`, and adds explanatory comments to clarify the required order. A corresponding test was updated (using Mockito’s `InOrder`) to verify the new sequence. This is a **bug‑fix** (no new feature or refactor) that ensures the truncated file size is correctly fsynced during shutdown.

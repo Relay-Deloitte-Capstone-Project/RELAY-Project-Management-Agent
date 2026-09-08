@@ -15,29 +15,31 @@ export const periodConfig = {
   dawn: {
     label: "Good morning",
     greeting: "Rise and shine",
-    accent: "#C084FC",
-    accentSoft: "rgba(192,132,252,0.12)",
-    isDark: true,
+    // Darkened from the raw palette's Accent (#C17F59) — this renders as
+    // text on its own translucent accentSoft pill, which needs 4.5:1.
+    accent: "#8F5E42",
+    accentSoft: "rgba(143,94,66,0.12)",
+    isDark: false,
   },
   day: {
     label: "Afternoon",
     greeting: "Sunshine",
-    accent: "#1A1FCC",
-    accentSoft: "#E8EAFF",
+    accent: "#376EA6",
+    accentSoft: "rgba(55,110,166,0.10)",
     isDark: false,
   },
   evening: {
     label: "Evening",
     greeting: "Winding down",
-    accent: "#F97316",
-    accentSoft: "rgba(249,115,22,0.10)",
-    isDark: true,
+    accent: "#A64D2E",
+    accentSoft: "rgba(166,77,46,0.15)",
+    isDark: false,
   },
   night: {
     label: "Night",
     greeting: "Late night",
-    accent: "#818CF8",
-    accentSoft: "rgba(129,140,248,0.10)",
+    accent: "#8AB4C7",
+    accentSoft: "rgba(138,180,199,0.10)",
     isDark: true,
   },
 } satisfies Record<

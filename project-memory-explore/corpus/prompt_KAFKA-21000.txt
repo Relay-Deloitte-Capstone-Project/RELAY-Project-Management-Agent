@@ -1,0 +1,50 @@
+You are a technical documentation assistant. A project manager needs to understand what work was done for ticket KAFKA-21000.
+
+COMMITS:
+Commit 18cdc64 by Tushar saini (2026-09-03):
+KAFKA-21000: Ensure FileRecords trim is fsynced when shutting down (#23303)
+
+When `log.preallocate=true`, a new log segment is created at the configured initial file size. The physical file is larger than the logical data until `FileRecords.trim()` truncates it to `sizeInBytes()` on segment roll or
+close.
+
+`FileRecords.close()` previously called `flush()` before `trim()`. The fsync persisted message data but not the smaller file length set by `truncate()`, because truncation happened after the fsync. If the broker shut down
+cleanly and the process crashed before the OS flushed file metadata, the on-disk `.log` file could still report the preallocated length.
+
+On restart, recovery is skipped for a clean shutdown, so `readNextOffset()` can scan past valid records into uninitialized or zero-filled bytes and fail.
+
+Reviewers: Jun Rao <junrao@gmail.com>
+Changed files:
+  - clients/src/main/java/org/apache/kafka/common/record/internal/FileRecords.java:
+@@ -215,8 +215,10 @@ public void close() throws IOException {
+             return;
+         }
+ 
+-        flush();
+         trim();
++        // flush() must run after trim() so the truncated file length is included in the fsync.
++        // A flush before trim only persists message data, not the smaller size set by trim().
++        flush();
+         channel.close();
+     }
+ 
+  - clients/src/test/java/org/apache/kafka/common/record/internal/FileRecordsTest.java:
+@@ -29,6 +29,7 @@
+ import org.junit.jupiter.api.Test;
+ import org.junit.jupiter.params.ParameterizedTest;
+ import org.junit.jupiter.params.provider.ValueSource;
++import org.mockito.InOrder;
+ import org.mockito.Mockito;
+ 
+ import java.io.File;
+@@ -59,6 +60,7 @@
+ import static org.mockito.ArgumentMatchers.eq;
+ import static org.mockito.Mockito.atLeastOnce;
+ import static org.mockito.Mockito.doReturn...
+
+
+PULL REQUESTS:
+(no PRs found)
+
+TASK: Write a 3-5 sentence plain-language summary of what was built, changed, or fixed. Mention the author and the type of change (bug fix, feature, refactor, test migration, etc.). If multiple commits/PRs exist, synthesize them into one coherent narrative.
+
+SUMMARY:

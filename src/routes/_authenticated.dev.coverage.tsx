@@ -50,8 +50,8 @@ function Coverage() {
 
       <PageSection label="At a glance">
         <div className="grid grid-cols-3 gap-3">
-          <MetricCard label="Linked tickets" value={776} tone="success" />
-          <MetricCard label="Unlinked tickets" value={340} tone="danger" />
+          <MetricCard label="Linked tickets" value={123} tone="success" />
+          <MetricCard label="Unlinked tickets" value={76} tone="danger" />
           <MetricCard label="Secrets found in history" value={4} tone="warning" />
         </div>
       </PageSection>

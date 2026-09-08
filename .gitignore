@@ -36,3 +36,6 @@ src/generated/
 *.njsproj
 *.sln
 *.sw?
+backend/.env
+backend/.venv/
+backend/reports/

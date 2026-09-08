@@ -84,7 +84,7 @@ function SystemHealth() {
       <PageSection label="Coverage">
         <Panel>
           <p className="text-[13px] leading-relaxed text-mute">
-            62% ticket-to-commit linkage across 1,247 tickets.
+            61.8% ticket-to-commit linkage — 123 of 199 tracked tickets.
           </p>
         </Panel>
       </PageSection>

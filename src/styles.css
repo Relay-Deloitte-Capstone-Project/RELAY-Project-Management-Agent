@@ -76,16 +76,19 @@
 :root {
   --radius: 8px;
 
-  --background: oklch(0.973 0.007 88.6); /* warm off-white surface */
-  --surface-sunken: oklch(0.973 0.007 88.6);
-  --card: oklch(1 0 0);
-  --foreground: oklch(0.159 0 89.9); /* ink */
-  --mute: oklch(0.671 0.014 82.4);
-  --border: oklch(0.898 0.011 89.7);
+  /* Base palette = "Clear Sky" (day). Each :root[data-period] block below
+     overrides these with its own named palette (see the design system this
+     was drafted from: Morning Dew / Clear Sky / Golden Hour / Midnight). */
+  --background: #f0f5fa;
+  --surface-sunken: #f0f5fa;
+  --card: #ffffff;
+  --foreground: #2a4365;
+  --mute: #65768a; /* darkened from the raw palette's #7e93ac — fails WCAG AA as text otherwise */
+  --border: #dce7f2;
 
-  --brand: oklch(0.407 0.247 267.4);
-  --brand-soft: oklch(0.942 0.028 281.5);
-  --brand-foreground: oklch(1 0 0);
+  --brand: #4779a6; /* darkened from the raw palette's #5b9bd5 — brand doubles as link/ticket-key text, which needs 4.5:1 against --card */
+  --brand-soft: #e6f0f9;
+  --brand-foreground: #ffffff;
 
   --success: oklch(0.627 0.17 149.2);
   --success-soft: oklch(0.982 0.018 155.8);
@@ -102,21 +105,60 @@
   --sidebar-active: oklch(0.227 0.004 286.1);
   --sidebar-foreground: oklch(1 0 0);
   --sidebar-muted: oklch(0.551 0.023 264.4);
+
+  --period-accent: #3d7ab8;
 }
 
-.dark,
-:root[data-period="dawn"],
-:root[data-period="night"] {
-  --background: oklch(0.168 0.017 284.5);
-  --surface-sunken: oklch(0.198 0.021 284.5);
-  --card: oklch(0.225 0.027 284);
-  --foreground: oklch(0.933 0.011 286.2);
-  --mute: oklch(0.62 0.02 270); /* lighter muted for legible text on dark bg */
-  --border: oklch(0.303 0.023 284.9);
+/* Morning Dew — warm, soft, energizing, like golden hour light. */
+:root[data-period="dawn"]:not(.dark) {
+  --background: #faf6f0;
+  --surface-sunken: #faf6f0;
+  --card: #ffffff;
+  --foreground: #5c4a3a;
+  --mute: #7e7264; /* darkened from the raw palette's #a0907e for text-contrast */
+  --border: #e9ddcd;
 
-  --brand: oklch(0.68 0.158 276.9);
-  --brand-soft: oklch(0.29 0.06 277);
-  --brand-foreground: oklch(0.168 0.017 284.5);
+  --brand: #946c4f; /* darkened from the raw palette's #e8a87c for text-contrast (brand is also link/ticket-key text) */
+  --brand-soft: #fcf2eb;
+  --brand-foreground: #ffffff;
+
+  --period-accent: #c17f59;
+}
+
+/* Golden Hour — warm, winding down, social, transition to relaxation. */
+:root[data-period="evening"]:not(.dark) {
+  --background: #faf3ef;
+  --surface-sunken: #faf3ef;
+  --card: #ffffff;
+  --foreground: #5c3020;
+  --mute: #906c5a; /* darkened from the raw palette's #a67c68 for text-contrast */
+  --border: #efdcd0;
+
+  --brand: #bd5636; /* darkened slightly from the raw palette's #c75b39 for text-contrast */
+  --brand-soft: #f7e6e1;
+  --brand-foreground: #ffffff;
+
+  --period-accent: #a64d2e;
+}
+
+/* Midnight — deep, calm, focused, easy on the eyes in low light. Also what
+   the manual dark-mode toggle switches to, regardless of time of day. */
+.dark,
+:root[data-period="night"] {
+  --background: #0f1620;
+  --surface-sunken: #141d2b;
+  --card: #1b2636;
+  --foreground: #d8e0ea;
+  --mute: #8ca0b8;
+  --border: #263449;
+
+  /* The raw palette's Primary (#2c3e5a) is too dark to work as text against
+     this dark background (brand also drives link/ticket-key text) — lightened
+     for legibility, with a dark brand-foreground to match (inverted from the
+     light periods, same pattern the old dark theme used). */
+  --brand: #858f9f;
+  --brand-soft: #15202e;
+  --brand-foreground: #0f1620;
 
   --success-soft: oklch(0.29 0.05 155);
   --warning-soft: oklch(0.3 0.05 80);
@@ -124,29 +166,8 @@
   --warning-strong: oklch(0.85 0.09 91);
   --danger-soft: oklch(0.3 0.07 22);
   --violet-soft: oklch(0.29 0.05 295);
-}
 
-/* Evening keeps the app light, with a faint peachy warmth. */
-:root[data-period="evening"]:not(.dark) {
-  --background: oklch(0.976 0.012 55);
-  --surface-sunken: oklch(0.976 0.012 55);
-}
-
-/* Sidebar active nav accent shifts with the time period. */
-:root {
-  --period-accent: var(--brand);
-}
-:root[data-period="dawn"] {
-  --period-accent: #c084fc;
-}
-:root[data-period="day"] {
-  --period-accent: #1a1fcc;
-}
-:root[data-period="evening"] {
-  --period-accent: #f97316;
-}
-:root[data-period="night"] {
-  --period-accent: #818cf8;
+  --period-accent: #8ab4c7;
 }
 
 @layer base {
@@ -190,55 +211,59 @@
  * ============================================================ */
 
 .landing {
-  --land-bg: #f8f6f0;
-  --land-bg2: #edeae0;
-  --land-text: #0d0d0d;
-  --land-mute: #8c8880;
-  --land-accent: #1a1fcc;
-  --land-glow: rgba(26, 31, 204, 0.06);
-  --land-horizon: linear-gradient(to top, #d4e9ff 0%, #f8f6f0 50%);
+  /* Clear Sky (day) default — crisp, trustworthy, productive. */
+  --land-bg: #f0f5fa;
+  --land-bg2: #e1ebf5;
+  --land-text: #2a4365;
+  --land-mute: #65768a;
+  --land-accent: #3d7ab8;
+  --land-glow: rgba(61, 122, 184, 0.1);
+  --land-horizon: linear-gradient(to top, #5b9bd5 0%, #f0f5fa 50%);
   position: relative;
   isolation: isolate;
 }
 
+/* Morning Dew — warm, soft, energizing, like golden hour light. */
 .landing[data-land-period="dawn"] {
-  --land-bg: #1a1625;
-  --land-bg2: #221d30;
-  --land-text: #f0ecf8;
-  --land-mute: #9b8fbb;
-  --land-accent: #c084fc;
-  --land-glow: rgba(192, 132, 252, 0.12);
-  --land-horizon: linear-gradient(to top, #3b1f5e 0%, #1a1625 60%);
+  --land-bg: #faf6f0;
+  --land-bg2: #f1e7d8;
+  --land-text: #5c4a3a;
+  --land-mute: #7e7264;
+  --land-accent: #c17f59;
+  --land-glow: rgba(193, 127, 89, 0.12);
+  --land-horizon: linear-gradient(to top, #e8a87c 0%, #faf6f0 50%);
 }
 
 .landing[data-land-period="day"] {
-  --land-bg: #f8f6f0;
-  --land-bg2: #edeae0;
-  --land-text: #0d0d0d;
-  --land-mute: #8c8880;
-  --land-accent: #1a1fcc;
-  --land-glow: rgba(26, 31, 204, 0.06);
-  --land-horizon: linear-gradient(to top, #d4e9ff 0%, #f8f6f0 50%);
+  --land-bg: #f0f5fa;
+  --land-bg2: #e1ebf5;
+  --land-text: #2a4365;
+  --land-mute: #65768a;
+  --land-accent: #3d7ab8;
+  --land-glow: rgba(61, 122, 184, 0.1);
+  --land-horizon: linear-gradient(to top, #5b9bd5 0%, #f0f5fa 50%);
 }
 
+/* Golden Hour — warm, winding down, social, transition to relaxation. */
 .landing[data-land-period="evening"] {
-  --land-bg: #1c0f05;
-  --land-bg2: #261508;
-  --land-text: #f5ede0;
-  --land-mute: #a8896a;
-  --land-accent: #f97316;
-  --land-glow: rgba(249, 115, 22, 0.15);
-  --land-horizon: linear-gradient(to top, #7c2d0c 0%, #1c0f05 55%);
+  --land-bg: #faf3ef;
+  --land-bg2: #f0e0d6;
+  --land-text: #5c3020;
+  --land-mute: #906c5a;
+  --land-accent: #a64d2e;
+  --land-glow: rgba(166, 77, 46, 0.15);
+  --land-horizon: linear-gradient(to top, #c75b39 0%, #faf3ef 55%);
 }
 
+/* Midnight — deep, calm, focused, easy on the eyes in low light. */
 .landing[data-land-period="night"] {
-  --land-bg: #080810;
-  --land-bg2: #0e0e1a;
-  --land-text: #d8d8f0;
-  --land-mute: #5a5a80;
-  --land-accent: #818cf8;
-  --land-glow: rgba(129, 140, 248, 0.08);
-  --land-horizon: linear-gradient(to top, #0f0f2e 0%, #080810 60%);
+  --land-bg: #0f1620;
+  --land-bg2: #141d2b;
+  --land-text: #d8e0ea;
+  --land-mute: #8ca0b8;
+  --land-accent: #8ab4c7;
+  --land-glow: rgba(138, 180, 199, 0.1);
+  --land-horizon: linear-gradient(to top, #2c3e5a 0%, #0f1620 60%);
 }
 
 .landing::before {

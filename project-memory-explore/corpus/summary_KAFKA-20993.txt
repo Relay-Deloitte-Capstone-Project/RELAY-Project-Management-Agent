@@ -1,0 +1,3 @@
+Provider: groq
+
+For ticket **KAFKA‑20993**, Gergely Harmadas removed the Hamcrest testing library from the Kafka Streams assignment package and migrated all of its usages to JUnit’s built‑in assertions. The change updates a handful of unit‑test classes (e.g., AssignmentInfoTest, AssignorConfigurationTest, ClientStateTest, and several others) by deleting Hamcrest imports, replacing `assertThat`/`Matchers` calls with JUnit `assert*` methods, and cleaning up now‑unused imports such as `java.util.Arrays` and `java.util.Collections`. This is a test‑code refactor aimed at simplifying the test dependencies rather than fixing a functional bug or adding a new feature. No new pull requests were attached; the work was delivered directly via the commit.
