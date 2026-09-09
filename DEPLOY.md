@@ -21,19 +21,26 @@ considered compromised:
 2. If you ever pasted Groq or Gemini keys anywhere public, rotate those too:
    <https://console.groq.com/keys> and <https://aistudio.google.com/apikey>.
 
-## Step 1 — Get Anya's GitHub App approvals (prerequisite for live sync)
+## Step 1 — Make the repo connectable (prerequisite for live sync)
 
-The repo is **private** under the `Anya-Gupta-05` account. Vercel and Render
-connect to private repos by installing a GitHub App on the owner's account —
-only Anya can approve this. Without it there is no auto-deploy on push.
+The repo is **private** under the `Anya-Gupta-05` personal account, and
+Vercel/Render only show repos from accounts you control. Fix by moving the repo
+— a GitHub transfer **preserves all history, issues, and collaborators** (Anya
+keeps full access) and the old URL auto-redirects, so teammates' local clones
+keep working untouched.
 
-1. **You** start both flows (they generate approval requests):
-   - Render → New → Blueprint → connect GitHub → search `RELAY-Project-Management-Agent`
-     → when it doesn't appear, click **Request** to install the Render app.
-   - Vercel → Add New → Project → same flow for the Vercel app.
-2. **Anya** approves both requests (email, or github.com/settings/installations),
-   granting access to the `RELAY-Project-Management-Agent` repo only.
-3. Once approved, both dashboards can see the repo — continue to step 3.
+Two ways, pick one:
+
+1. **Organization (recommended for a team)**: you create a free org
+   (github.com → your avatar → Your organizations → New organization, free
+   plan), then Anya does repo → Settings → General → Danger Zone →
+   **Transfer ownership** → your new org. You install the Vercel + Render
+   GitHub Apps on the org yourself — no further approvals needed.
+2. **Straight transfer**: Anya transfers the repo to your personal account
+   (same Danger Zone flow). She remains a collaborator automatically.
+
+After the transfer, the repo appears in your Render and Vercel repo pickers —
+continue to step 3.
 
 ## Step 2 — Neon database (ALREADY DONE — reference for re-runs)
 
@@ -130,19 +137,31 @@ Prerequisite: step 1 approved.
    - Dashboard pages render burndown/breakdown charts.
 3. CORS errors in the console mean `CORS_ORIGINS` doesn't exactly match the
    origin (scheme + host, no trailing slash).
-4. **Prove live sync**: commit a small visible change (e.g. edit a heading),
-   push to `main`, and watch both dashboards redeploy. Frontend ~2 min,
-   backend ~10 min (Docker rebuild).
+4. **Prove live sync**: merge a tiny PR (e.g. edit a heading on a branch, merge
+   it) and watch both dashboards redeploy. Frontend ~2 min, backend ~10 min
+   (Docker rebuild).
 
 ---
 
 ## Day-2 workflows
 
-### Code changes → live site
+### Code changes → live site (branch workflow — `main` is protected territory)
 
-Push to `main`. That's it — Vercel and Render both auto-redeploy. Watch progress
-in each dashboard's deploy log. A broken push breaks the live site, so use PRs
-for risky work: Vercel builds a free preview deployment for every PR.
+`main` auto-deploys to production, so **never push feature work directly to it**.
+Three people are building in parallel; keep the demo site stable:
+
+```bash
+git checkout -b feature/my-thing     # branch off main
+# ... build, then review and test everything LOCALLY first ...
+git push -u origin feature/my-thing  # push the branch, not main
+gh pr create                         # open a PR
+# Vercel builds a free preview URL on the PR — demo the feature there first
+# merge the PR only when 100% certain it won't break the deployed version
+```
+
+Merging to `main` is what deploys: Vercel redeploys the frontend (~2 min) and
+Render rebuilds the backend Docker image (~10 min). Watch each dashboard's
+deploy log if something looks off.
 
 ### Database edits that go live immediately
 
@@ -190,7 +209,7 @@ password `relay2026`. **Change this before sharing beyond the team.**
 
 | Symptom | Fix |
 | --- | --- |
-| Push to `main` doesn't redeploy | GitHub App not approved (step 1), or `autoDeploy` toggled off in Render settings |
+| Merged PR doesn't redeploy | Deploys trigger on `main` only; check the dashboard deploy log, and that `autoDeploy` is on in Render settings |
 | Render logs: `DATABASE_URL must point at the Relay postgres instance` | Wrong URL pasted; must start with `postgresql://` (use the unpooled Neon string) |
 | Render OOM / crash loop | 512 MB free-tier limit; upgrade to Starter ($7/mo) |
 | Vercel SSR 500 on login | `DATABASE_URL` or `JWT_SECRET` missing in Vercel env; redeploy after adding |
