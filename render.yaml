@@ -1,0 +1,37 @@
+# Render blueprint — deploys the FastAPI backend as a persistent web service.
+# Dashboard: New → Blueprint → point at this repo. Secret env vars (sync: false)
+# are pasted into the Render dashboard after the service is created — see DEPLOY.md.
+services:
+  - type: web
+    name: relay-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    # CPU-only torch first: the default PyPI Linux wheel bundles CUDA (~2.5 GB)
+    # and blows past the free tier's memory. sentence-transformers then sees
+    # torch already installed and skips re-pulling it.
+    buildCommand: >-
+      PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
+      pip install "torch==2.6.0+cpu"
+      && pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_GEMINI_API
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: RELAY_ENGAGEMENT_ID
+        value: proj-001
