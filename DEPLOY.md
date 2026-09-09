@@ -215,4 +215,5 @@ password `relay2026`. **Change this before sharing beyond the team.**
 | Vercel SSR 500 on login | `DATABASE_URL` or `JWT_SECRET` missing in Vercel env; redeploy after adding |
 | Prisma errors about SQLite | Stale generated client; `npx prisma generate` and redeploy |
 | Generic answers / no citations | `ivfflat.probes` unset — rerun the `ALTER DATABASE ... SET ivfflat.probes = 10;` from step 2 |
+| Vercel 500s: `__commonJSMin is not a function` | Known rolldown bug ([rolldown#9993](https://github.com/rolldown/rolldown/issues/9993)) with vite ≥8.1 — keep vite pinned at 8.0.x; do not upgrade without re-verifying the deployed bundle |
 | Browser CORS errors | `CORS_ORIGINS` on Render must match the Vercel origin exactly |
