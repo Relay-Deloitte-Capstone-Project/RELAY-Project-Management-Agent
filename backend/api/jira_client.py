@@ -12,7 +12,11 @@ import os
 
 import httpx
 
-SITE = os.environ.get("JIRA_SITE", "")
+# Accept the site with or without scheme — pasting "https://x.atlassian.net"
+# would otherwise produce a malformed https://https://... base URL and every
+# analytics call would 500 (surfacing as "Failed to fetch" in the browser,
+# since FastAPI's unhandled-error responses bypass the CORS middleware).
+SITE = os.environ.get("JIRA_SITE", "").removeprefix("https://").removeprefix("http://").strip("/")
 EMAIL = os.environ.get("JIRA_EMAIL", "")
 TOKEN = os.environ.get("JIRA_API_TOKEN", "")
 BOARD_ID = int(os.environ.get("JIRA_BOARD_ID", "34"))
