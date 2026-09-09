@@ -1,12 +1,9 @@
-<!-- LOVABLE:BEGIN -->
+# AGENTS.md
 
-> [!IMPORTANT]
-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
-> published git history — force pushing, or rebasing/amending/squashing commits
-> that are already pushed — as it rewrites history on Lovable's side and the
-> user will likely lose their project history.
->
-> Commits you push to the connected branch sync back to Lovable and show up in
-> the editor, so keep the branch in a working state.
+This repo is a standard shared team repository (the initial frontend was
+exported from Lovable once; it is **no longer connected to Lovable**).
 
-<!-- LOVABLE:END -->
+- `main` is connected to auto-deploys (Vercel frontend, Render backend) — every
+  push redeploys production. Keep `main` in a working state and don't
+  force-push shared history.
+- Deployment runbook: see `DEPLOY.md`.

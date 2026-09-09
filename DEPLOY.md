@@ -1,160 +1,199 @@
-# DEPLOY.md — Free-tier deployment (Neon + Render + Vercel)
+# DEPLOY.md — Free-tier deployment with live sync (Neon + Render + Vercel)
 
 Architecture: **Vercel** hosts the TanStack Start frontend (SSR via Nitro's
-`vercel` preset), **Render** hosts the FastAPI backend as a persistent free web
-service, **Neon** hosts one free Postgres database (with pgvector) shared by the
-backend corpus tables and the Prisma auth tables.
+`vercel` preset, auto-redeploys on every push to `main`), **Render** hosts the
+FastAPI backend as a **Docker** web service (`backend/Dockerfile`, auto-redeploys
+on every push to `main`), **Neon** hosts the single Postgres database (with
+pgvector) shared by the backend corpus and the Prisma auth tables.
 
-Do the steps in this exact order — each step produces a value the next one needs.
+> **Status tracker** — already done: Neon database is live and populated
+> (1070 corpus chunks, auth tables, 8 seeded users). Remaining: steps 0, 1, 3, 4, 5.
 
 ---
 
 ## Step 0 — Rotate the leaked GitHub token (do this first)
 
 A GitHub personal access token was committed to this repo (in
-`project-memory-explore/`). It must be considered compromised:
+`project-memory-explore/`). The files have been scrubbed, but the token must be
+considered compromised:
 
 1. Go to <https://github.com/settings/tokens> and **revoke/delete** the token.
-   If you're unsure which one it is, revoke any PAT you don't actively need.
-2. The files have already been scrubbed (`github_token.txt` deleted,
-   `test_mcp_connection.py` now reads the token from the environment). Do **not**
-   rewrite git history — this repo is connected to Lovable, and revocation alone
-   fully kills the leaked token.
-3. If you ever pasted Groq or Gemini keys anywhere public, rotate those too:
+2. If you ever pasted Groq or Gemini keys anywhere public, rotate those too:
    <https://console.groq.com/keys> and <https://aistudio.google.com/apikey>.
 
-## Step 1 — Neon (database first)
+## Step 1 — Get Anya's GitHub App approvals (prerequisite for live sync)
 
-1. Sign up at <https://neon.tech> (free), create a project (e.g. `relay`),
-   any region close to your Render/Vercel regions.
-2. In the Neon dashboard, enable the vector extension — SQL Editor:
-   ```sql
-   CREATE EXTENSION IF NOT EXISTS vector;
-   ```
-3. Copy **two** connection strings from the dashboard (Connection Details):
-   - the **pooled** one (host contains `-pooler`) → used by Vercel and as your
-     local `DATABASE_URL` for step 2
-   - the **direct** one → used by Render (a persistent service doesn't need the
-     pooler, but the pooled one also works if you only saved one)
-4. Load the corpus data. From the repo root, with `psql` installed:
-   ```bash
-   export NEON_URL="postgresql://...direct-connection-string..."
-   # The dump is pg_dump output whose ALTER ... OWNER TO pm_user lines would
-   # fail on Neon (that role doesn't exist there) — strip them:
-   grep -v 'OWNER TO' database/relay_db_dump.sql > /tmp/relay_restore.sql
-   psql "$NEON_URL" -f /tmp/relay_restore.sql
-   # Zone 3 tables (chat sessions, scratchpad) are not in the dump:
-   psql "$NEON_URL" -f database/zone3.sql
-   # init.sql set ivfflat.probes on the pm_user role; on Neon set it on the
-   # database instead so every connection inherits it:
-   psql "$NEON_URL" -c "ALTER DATABASE neondb SET ivfflat.probes = 10;"
-   ```
-   Sanity check:
-   ```bash
-   psql "$NEON_URL" -c "SELECT count(*) FROM public.chunks;"
-   ```
+The repo is **private** under the `Anya-Gupta-05` account. Vercel and Render
+connect to private repos by installing a GitHub App on the owner's account —
+only Anya can approve this. Without it there is no auto-deploy on push.
 
-## Step 2 — Prisma auth tables + seed users
+1. **You** start both flows (they generate approval requests):
+   - Render → New → Blueprint → connect GitHub → search `RELAY-Project-Management-Agent`
+     → when it doesn't appear, click **Request** to install the Render app.
+   - Vercel → Add New → Project → same flow for the Vercel app.
+2. **Anya** approves both requests (email, or github.com/settings/installations),
+   granting access to the `RELAY-Project-Management-Agent` repo only.
+3. Once approved, both dashboards can see the repo — continue to step 3.
 
-The app stores login users/sessions via Prisma. **Do not use `prisma db push`** —
-it tries to make the whole database match the Prisma schema and will offer to
-drop `public.chunks` (the RAG corpus) and `public.user_permissions`. Instead,
-generate DDL for just the two auth tables and apply it directly:
+## Step 2 — Neon database (ALREADY DONE — reference for re-runs)
+
+Project `royal-paper-12455656`, branch `production`. Connection strings live in
+`.env.local` (gitignored): `DATABASE_URL` (pooled, for Vercel) and
+`DATABASE_URL_UNPOOLED` (direct, for Render).
+
+If you ever rebuild the database from scratch:
 
 ```bash
-export $(grep -v '^#' .env.local | xargs)   # loads the Neon DATABASE_URL
-npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > /tmp/auth_tables.sql
-npx prisma db execute --file /tmp/auth_tables.sql --schema prisma/schema.prisma
-node prisma/seed.ts   # or: bun prisma db seed
+export NEON_URL="postgresql://...direct-connection-string..."
+psql "$NEON_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
+grep -v 'OWNER TO' database/relay_db_dump.sql > /tmp/relay_restore.sql
+psql "$NEON_URL" -f /tmp/relay_restore.sql
+psql "$NEON_URL" -f database/zone3.sql
+psql "$NEON_URL" -c "ALTER DATABASE neondb SET ivfflat.probes = 10;"
+psql "$NEON_URL" -c "SELECT count(*) FROM public.chunks;"   # expect 1070
 ```
 
-This creates the roster from `prisma/seed.ts` (anya@relay.dev, adveita@relay.dev,
-akshar@relay.dev, agrim@relay.dev, shubhr@relay.dev, priya@relay.dev,
-jason@relay.dev, omar@relay.dev) — **all with password `relay2026`**. Change this
-before sharing widely if it matters to you. Note the seed wipes and recreates all
-users each run.
+Auth tables + users (already applied):
 
-> `db push`/`migrate deploy` are both avoided: the existing `prisma/migrations/`
-> were written for SQLite, and `db push` would drop the backend's tables.
+```bash
+export $(grep -v '^#' .env.local | xargs)
+npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > /tmp/auth_tables.sql
+npx prisma db execute --file /tmp/auth_tables.sql --schema prisma/schema.prisma
+node prisma/seed.ts
+```
 
-## Step 3 — Render (backend)
+**Never run `prisma db push` or `prisma migrate deploy` against this database** —
+`db push` offers to drop `public.chunks` and `public.user_permissions` (the RAG
+corpus), and the migrations folder was written for SQLite. Use the
+`migrate diff` + `db execute` pattern above.
 
-1. Push this repo to GitHub (Render deploys from git).
-2. Render dashboard → **New → Blueprint** → select the repo. It picks up
-   `render.yaml` and creates the `relay-backend` web service (free plan).
-3. Open the service → **Environment** and set the `sync: false` variables:
+## Step 3 — Render (backend, Docker)
+
+Prerequisite: step 1 approved.
+
+1. Render dashboard → **New → Blueprint** → select the repo. Render reads
+   `render.yaml` and creates the `relay-backend` web service: Docker runtime,
+   builds `backend/Dockerfile`, free plan, **autoDeploy on** (every push to
+   `main` rebuilds).
+2. Open **relay-backend → Environment** and set the secret variables:
 
    | Key | Value |
    | --- | --- |
-   | `DATABASE_URL` | Neon **direct** connection string from step 1 |
+   | `DATABASE_URL` | `DATABASE_URL_UNPOOLED` from `.env.local` (direct Neon string) |
    | `GROQ_API_KEY` | your key from <https://console.groq.com/keys> (free) |
-   | `GOOGLE_GEMINI_API` | your key from <https://aistudio.google.com/apikey> (fallback; optional but recommended) |
+   | `GOOGLE_GEMINI_API` | your key from <https://aistudio.google.com/apikey> (recommended fallback) |
    | `CORS_ORIGINS` | `http://localhost:3000` for now — replaced with the Vercel URL in step 5 |
 
-   `LLM_PROVIDER`, `GROQ_MODEL`, `GEMINI_MODEL`, `RELAY_ENGAGEMENT_ID` already
-   have defaults in `render.yaml`.
-4. Wait for the deploy, then verify:
+   `LLM_PROVIDER`, `GROQ_MODEL`, `GEMINI_MODEL`, `RELAY_ENGAGEMENT_ID` have
+   defaults in `render.yaml`.
+3. First Docker build takes ~10–15 min (torch + embedding model are baked into
+   the image). When the service shows **Live**:
    ```bash
    curl https://<your-service>.onrender.com/health   # {"status":"ok"}
    ```
-   Copy the service URL — the frontend needs it next.
+   Copy the service URL — the frontend needs it in step 4.
 
 **Free-tier caveats:** the service sleeps after ~15 min idle; the first request
-after sleep takes ~30–60 s (embedding model load). If deploys fail with
-out-of-memory in the logs (torch + sentence-transformers on 512 MB RAM),
-upgrade the service to Starter ($7/mo) — there is no free-tier fix beyond the
-CPU-torch pin already in `render.yaml`.
+after sleep takes ~30–60 s. If the service crashes with out-of-memory in the
+logs (torch on 512 MB RAM), upgrade to Starter ($7/mo) — there is no free-tier
+fix beyond the CPU-torch pin already in the Dockerfile.
 
 ## Step 4 — Vercel (frontend)
 
-1. Vercel dashboard → **Add New → Project** → import the same GitHub repo.
-   `vercel.json` already sets the install/build commands
-   (`NITRO_PRESET=vercel bun run build`); leave the framework preset as detected.
-2. Add environment variables (**all environments** — they're needed at build
-   time too):
+Prerequisite: step 1 approved.
+
+1. Vercel dashboard → **Add New → Project** → import the repo. `vercel.json`
+   already sets the build (`NITRO_PRESET=vercel bun run build`); leave settings
+   as detected.
+2. Add environment variables (all environments — they're needed at build time):
 
    | Key | Value |
    | --- | --- |
-   | `DATABASE_URL` | Neon **pooled** connection string from step 1 |
-   | `JWT_SECRET` | a fresh random string, 32+ chars (`openssl rand -hex 32`) |
+   | `DATABASE_URL` | `DATABASE_URL` (**pooled**) from `.env.local` |
+   | `JWT_SECRET` | fresh random string, 32+ chars (`openssl rand -hex 32`) |
    | `VITE_ASK_API_URL` | `https://<your-service>.onrender.com` from step 3 |
 
-3. Deploy. When it finishes, copy your site URL (`https://<app>.vercel.app`).
+3. Deploy, then copy your site URL (`https://<app>.vercel.app`).
 
 > `VITE_ASK_API_URL` is inlined at build time. If the backend URL ever changes,
-> update the variable and **redeploy** — it will not change on its own.
+> update the variable and **redeploy** (Vercel → Deployments → ⋯ → Redeploy).
 
 ## Step 5 — Backfill CORS + smoke test
 
-1. Render → `relay-backend` → Environment → set
-   `CORS_ORIGINS=https://<app>.vercel.app` (comma-separate to add more origins,
-   e.g. a preview domain). Save — Render redeploys automatically.
+1. Render → relay-backend → Environment → set
+   `CORS_ORIGINS=https://<app>.vercel.app` (comma-separate to add more origins).
+   Saving redeploys automatically.
 2. Smoke test in the browser:
    - Open `https://<app>.vercel.app`, log in as `anya@relay.dev` / `relay2026`.
-   - Ask Project page: ask a question — expect an answer with citations
-     (first call may take ~60 s if Render was asleep).
-   - Dashboard pages render burndown/breakdown charts (they hit the backend's
-     analytics endpoints).
-3. If the browser console shows CORS errors, the `CORS_ORIGINS` value doesn't
-   exactly match the origin (scheme + host, no trailing slash).
+   - Ask Project: ask a question — expect an answer with citations (first call
+     may take ~60 s if Render was asleep).
+   - Dashboard pages render burndown/breakdown charts.
+3. CORS errors in the console mean `CORS_ORIGINS` doesn't exactly match the
+   origin (scheme + host, no trailing slash).
+4. **Prove live sync**: commit a small visible change (e.g. edit a heading),
+   push to `main`, and watch both dashboards redeploy. Frontend ~2 min,
+   backend ~10 min (Docker rebuild).
 
 ---
 
-## Manual steps I could not do for you
+## Day-2 workflows
 
-- Creating the Neon, Render, and Vercel accounts and connecting the GitHub repo.
-- Revoking the leaked GitHub token (step 0) — only you can do this.
-- Pasting the environment variables into the Render and Vercel dashboards.
-- Supplying Groq/Gemini API keys (free sign-ups at the links above).
-- Running steps 1–2 against your Neon database (unless you put the Neon URL in
-  your local `.env` and ask me to run them).
+### Code changes → live site
+
+Push to `main`. That's it — Vercel and Render both auto-redeploy. Watch progress
+in each dashboard's deploy log. A broken push breaks the live site, so use PRs
+for risky work: Vercel builds a free preview deployment for every PR.
+
+### Database edits that go live immediately
+
+There is **one** database — Neon, in the cloud. There is no local↔cloud sync to
+manage; edit it directly and the deployed app sees the change instantly:
+
+```bash
+export $(grep -v '^#' .env.local | xargs)
+psql "$DATABASE_URL"          # or: edit rows in Neon's dashboard SQL Editor
+```
+
+This includes ingesting new Jira/GitHub data (`backend/scripts/`, `jira_toolkit.py`)
+— point the script at the Neon URL and the deployed app answers from the new
+chunks immediately.
+
+### Safe database experiments (Neon branches)
+
+Don't test destructive changes against `production`. Create an isolated branch
+(a copy-on-write clone, free tier includes branches):
+
+```bash
+neon checkout -b dev-akshar     # creates + switches; .env.local now points at it
+# ... experiment freely ...
+neon checkout production        # switch back when done
+neon branches delete dev-akshar
+```
+
+### Schema changes
+
+1. Edit `prisma/schema.prisma` (auth tables) or the SQL files in `database/`.
+2. Preview: `npx prisma migrate diff --from-schema-datamodel prisma/schema.prisma --to-url "$DATABASE_URL" --script`
+3. Apply: `npx prisma migrate diff ... --script > /tmp/change.sql && npx prisma db execute --file /tmp/change.sql --schema prisma/schema.prisma`
+4. For corpus/zone3 tables, write plain SQL and apply with `psql`.
+
+### Users / seeds
+
+Logins: anya@relay.dev, adveita@relay.dev, akshar@relay.dev, agrim@relay.dev,
+shubhr@relay.dev, priya@relay.dev, jason@relay.dev, omar@relay.dev — all with
+password `relay2026`. **Change this before sharing beyond the team.**
+`node prisma/seed.ts` reseeds but **wipes all users first**.
+
+---
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| Render logs show `DATABASE_URL must point at the Relay postgres instance` | You pasted the Prisma-style URL into the wrong place, or it doesn't start with `postgresql://` |
-| Render OOM / deploy loops | Free-tier RAM limit; upgrade to Starter or shrink the embedding model |
+| Push to `main` doesn't redeploy | GitHub App not approved (step 1), or `autoDeploy` toggled off in Render settings |
+| Render logs: `DATABASE_URL must point at the Relay postgres instance` | Wrong URL pasted; must start with `postgresql://` (use the unpooled Neon string) |
+| Render OOM / crash loop | 512 MB free-tier limit; upgrade to Starter ($7/mo) |
 | Vercel SSR 500 on login | `DATABASE_URL` or `JWT_SECRET` missing in Vercel env; redeploy after adding |
-| `prisma` errors about SQLite | Stale generated client; `bun prisma generate` then redeploy |
-| Answers come back generic / no citations | `ivfflat.probes` not set — rerun the `ALTER DATABASE ... SET ivfflat.probes = 10;` from step 1 |
+| Prisma errors about SQLite | Stale generated client; `npx prisma generate` and redeploy |
+| Generic answers / no citations | `ivfflat.probes` unset — rerun the `ALTER DATABASE ... SET ivfflat.probes = 10;` from step 2 |
+| Browser CORS errors | `CORS_ORIGINS` on Render must match the Vercel origin exactly |
