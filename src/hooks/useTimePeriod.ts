@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export type Period = "dawn" | "day" | "evening" | "night";
 
 export function periodForHour(hour: number): Period {
@@ -7,8 +9,25 @@ export function periodForHour(hour: number): Period {
   return "night";
 }
 
+// SSR renders a stable default; the real local period is resolved on the
+// client after mount so the UI follows the viewer's clock, not the server's.
+const SSR_DEFAULT: Period = "day";
+
 export function useTimePeriod(): Period {
-  return periodForHour(new Date().getHours());
+  const [period, setPeriod] = useState<Period>(SSR_DEFAULT);
+
+  useEffect(() => {
+    const update = () => setPeriod(periodForHour(new Date().getHours()));
+    update();
+    const id = window.setInterval(update, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.period = period;
+  }, [period]);
+
+  return period;
 }
 
 export const periodConfig = {
