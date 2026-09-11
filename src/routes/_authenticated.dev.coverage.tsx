@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { MetricCard, PageSection, Panel, TicketKey } from "@/components/relay/primitives";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -48,6 +49,7 @@ function Coverage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +77,15 @@ function Coverage() {
   }, []);
 
   const linked = summary ? summary.total_issues - summary.scope.unlinked : null;
+
+  const q = query.trim().toLowerCase();
+  const filtered = tickets
+    ? q
+      ? tickets.filter(
+          (t) => t.key.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q),
+        )
+      : tickets
+    : null;
 
   return (
     <AppShell user={user} title="Coverage">
@@ -105,42 +116,60 @@ function Coverage() {
             </div>
           )}
           {tickets && (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="section-label">Key</TableHead>
-                  <TableHead className="section-label">Summary</TableHead>
-                  <TableHead className="section-label">Status</TableHead>
-                  <TableHead className="section-label">Type</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tickets.map((t) => (
-                  <TableRow key={t.key} className="h-10">
-                    <TableCell>
-                      <TicketKey>{t.key}</TicketKey>
-                    </TableCell>
-                    <TableCell className="text-[13px] text-ink">{t.summary}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${
-                          statusTone[t.status] === "danger"
-                            ? "bg-danger-soft text-danger"
-                            : statusTone[t.status] === "brand"
-                              ? "bg-brand-soft text-brand"
-                              : statusTone[t.status] === "success"
-                                ? "bg-success-soft text-success"
-                                : "bg-warning-soft text-warning"
-                        }`}
-                      >
-                        {t.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-[13px] text-mute">{t.type}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <>
+              <div className="relative mb-3">
+                <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-mute" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search by ticket ID or summary…"
+                  className="h-8 border-border bg-surface pl-9 text-[13px] placeholder:text-mute"
+                />
+              </div>
+              <div className="max-h-[420px] overflow-y-auto">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-card">
+                    <TableRow>
+                      <TableHead className="section-label">Key</TableHead>
+                      <TableHead className="section-label">Summary</TableHead>
+                      <TableHead className="section-label">Status</TableHead>
+                      <TableHead className="section-label">Type</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered!.map((t) => (
+                      <TableRow key={t.key} className="h-10">
+                        <TableCell>
+                          <TicketKey>{t.key}</TicketKey>
+                        </TableCell>
+                        <TableCell className="text-[13px] text-ink">{t.summary}</TableCell>
+                        <TableCell>
+                          <span
+                            className={`rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${
+                              statusTone[t.status] === "danger"
+                                ? "bg-danger-soft text-danger"
+                                : statusTone[t.status] === "brand"
+                                  ? "bg-brand-soft text-brand"
+                                  : statusTone[t.status] === "success"
+                                    ? "bg-success-soft text-success"
+                                    : "bg-warning-soft text-warning"
+                            }`}
+                          >
+                            {t.status}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-[13px] text-mute">{t.type}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {filtered!.length === 0 && (
+                  <p className="py-6 text-center text-[13px] text-mute">
+                    No tickets match “{query}”.
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </Panel>
       </PageSection>

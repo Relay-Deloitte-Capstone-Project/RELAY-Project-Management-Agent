@@ -8,6 +8,7 @@ import {
   MessageSquareText,
   PackageOpen,
   Rocket,
+  Search,
   Zap,
 } from "lucide-react";
 import { AppShell } from "@/components/relay/AppShell";
@@ -30,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { handoverDetails, teamMembers, type HandoverSituation } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 
@@ -289,6 +291,15 @@ function WorkStateTab({
   tickets: Ticket[] | null;
   openPrs: number | undefined;
 }) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  // Longest-outstanding tickets first; live-filtered by key or summary.
+  const visibleTickets = tickets
+    ? [...tickets]
+        .sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
+        .filter((t) => !q || t.key.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q))
+    : null;
+
   return (
     <>
       <PageSection>
@@ -310,30 +321,47 @@ function WorkStateTab({
               <div className="flex items-center gap-2 py-2 text-[13px] text-mute">
                 <Loader2 className="size-3.5 animate-spin" /> Loading…
               </div>
-            ) : tickets.length === 0 ? (
-              <p className="py-2 text-[13px] text-mute">No open tickets assigned.</p>
             ) : (
-              <ul>
-                {tickets.map((t) => (
-                  <li key={t.key} className="border-b border-border py-2 last:border-0">
-                    <div className="flex items-center gap-2">
-                      <TicketKey>{t.key}</TicketKey>
-                      <span className="flex-grow text-[13px] text-ink">{t.summary}</span>
-                      <Chip
-                        tone={
-                          t.status === "Done"
-                            ? "success"
-                            : t.status === "In Progress"
-                              ? "brand"
-                              : "neutral"
-                        }
-                      >
-                        {t.status}
-                      </Chip>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <div className="relative mb-2">
+                  <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-mute" />
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search by ticket ID or summary…"
+                    className="h-8 border-border bg-surface pl-9 text-[13px] placeholder:text-mute"
+                  />
+                </div>
+                <div className="max-h-[360px] overflow-y-auto">
+                  {tickets.length === 0 ? (
+                    <p className="py-2 text-[13px] text-mute">No open tickets assigned.</p>
+                  ) : visibleTickets!.length === 0 ? (
+                    <p className="py-2 text-[13px] text-mute">No tickets match “{query}”.</p>
+                  ) : (
+                    <ul>
+                      {visibleTickets!.map((t) => (
+                        <li key={t.key} className="border-b border-border py-2 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <TicketKey>{t.key}</TicketKey>
+                            <span className="flex-grow text-[13px] text-ink">{t.summary}</span>
+                            <Chip
+                              tone={
+                                t.status === "Done"
+                                  ? "success"
+                                  : t.status === "In Progress"
+                                    ? "brand"
+                                    : "neutral"
+                              }
+                            >
+                              {t.status}
+                            </Chip>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
             )}
           </Panel>
 
@@ -439,11 +467,11 @@ function AssignHandoverTab({
           icon={<ClipboardList className="size-3.5 text-mute" />}
         >
           <div className="section-label mb-2">Ticket coverage</div>
-          <div className="mb-4 space-y-2">
-            {!tickets || tickets.length === 0 ? (
-              <p className="text-[13px] text-mute">No open tickets to reassign.</p>
-            ) : (
-              tickets.map((t) => (
+          {!tickets || tickets.length === 0 ? (
+            <p className="text-[13px] text-mute">No open tickets to reassign.</p>
+          ) : (
+            <div className="max-h-[336px] space-y-2 overflow-y-auto pr-1">
+              {tickets.map((t) => (
                 <div key={t.key} className="flex items-center gap-3">
                   <Chip tone="neutral" className="w-24 shrink-0 justify-center">
                     {t.key}
@@ -481,78 +509,90 @@ function AssignHandoverTab({
                     ))}
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </PageSection>
 
-          <div className="section-label mb-2">PR review coverage</div>
-          <div className="mb-4 space-y-2">
-            {!detail || detail.prsAwaiting.length === 0 ? (
-              <p className="text-[13px] text-mute">No PRs waiting on this person.</p>
-            ) : (
-              detail.prsAwaiting.map((pr) => (
-                <div key={pr.key} className="flex items-center gap-3">
-                  <TicketKey>{pr.key}</TicketKey>
-                  <Select
-                    value={prReviewer[pr.key] ?? ""}
-                    onValueChange={(v) => setPrReviewer((prev) => ({ ...prev, [pr.key]: v }))}
-                  >
-                    <SelectTrigger className="h-8 flex-grow text-[13px]">
-                      <SelectValue placeholder="Assign a reviewer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {otherMembers.map((m) => (
-                        <SelectItem key={m.account_id} value={m.name}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <span className="shrink-0 text-[11px] text-danger">
-                    ⚠ Blocked {pr.waitingDays} {pr.waitingDays === 1 ? "day" : "days"}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+      <PageSection>
+        <div className="grid grid-cols-2 items-start gap-4">
+          <Panel
+            title="PR review coverage"
+            icon={<MessageSquareText className="size-3.5 text-mute" />}
+          >
+            <div className="space-y-2">
+              {!detail || detail.prsAwaiting.length === 0 ? (
+                <p className="text-[13px] text-mute">No PRs waiting on this person.</p>
+              ) : (
+                detail.prsAwaiting.map((pr) => (
+                  <div key={pr.key} className="flex items-center gap-3">
+                    <TicketKey>{pr.key}</TicketKey>
+                    <Select
+                      value={prReviewer[pr.key] ?? ""}
+                      onValueChange={(v) => setPrReviewer((prev) => ({ ...prev, [pr.key]: v }))}
+                    >
+                      <SelectTrigger className="h-8 flex-grow text-[13px]">
+                        <SelectValue placeholder="Assign a reviewer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {otherMembers.map((m) => (
+                          <SelectItem key={m.account_id} value={m.name}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="shrink-0 text-[11px] text-danger">
+                      ⚠ Blocked {pr.waitingDays} {pr.waitingDays === 1 ? "day" : "days"}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
 
-          <div className="section-label mb-2">Branch owner</div>
-          <div className="mb-4 space-y-2">
-            {!detail || detail.branches.length === 0 ? (
-              <p className="text-[13px] text-mute">No branches to reassign.</p>
-            ) : (
-              detail.branches.map((b) => (
-                <div key={b.name} className="flex items-center gap-3">
-                  <BranchName>{b.name}</BranchName>
-                  <Select
-                    value={branchOwner[b.name] ?? ""}
-                    onValueChange={(v) => setBranchOwner((prev) => ({ ...prev, [b.name]: v }))}
-                  >
-                    <SelectTrigger className="h-8 flex-grow text-[13px]">
-                      <SelectValue placeholder="Assign owner" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {otherMembers.map((m) => (
-                        <SelectItem key={m.account_id} value={m.name}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <span
-                    className={cn(
-                      "shrink-0 text-[11px]",
-                      b.state === "mid-flight" ? "text-warning" : "text-mute",
-                    )}
-                  >
-                    {b.commitsAhead} commits, {b.state}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+          <Panel title="Branch owner" icon={<GitBranch className="size-3.5 text-mute" />}>
+            <div className="space-y-2">
+              {!detail || detail.branches.length === 0 ? (
+                <p className="text-[13px] text-mute">No branches to reassign.</p>
+              ) : (
+                detail.branches.map((b) => (
+                  <div key={b.name} className="flex items-center gap-3">
+                    <BranchName>{b.name}</BranchName>
+                    <Select
+                      value={branchOwner[b.name] ?? ""}
+                      onValueChange={(v) => setBranchOwner((prev) => ({ ...prev, [b.name]: v }))}
+                    >
+                      <SelectTrigger className="h-8 flex-grow text-[13px]">
+                        <SelectValue placeholder="Assign owner" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {otherMembers.map((m) => (
+                          <SelectItem key={m.account_id} value={m.name}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[11px]",
+                        b.state === "mid-flight" ? "text-warning" : "text-mute",
+                      )}
+                    >
+                      {b.commitsAhead} commits, {b.state}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
+        </div>
+      </PageSection>
 
-          <div className="section-label mb-2">Handover note to assignees</div>
+      <PageSection>
+        <Panel title="Handover note to assignees">
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
