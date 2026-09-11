@@ -1,13 +1,20 @@
 import asyncio
 import json
+import os
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+# Reads the token from the environment — a real PAT was committed here once and
+# has been rotated. Never paste a token into this file again.
+token = os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN")
+if not token:
+    raise SystemExit("Set GITHUB_PERSONAL_ACCESS_TOKEN in the environment first.")
 
 async def test():
     server = StdioServerParameters(
         command="github-mcp-server",
         args=["stdio"],
-        env={"GITHUB_PERSONAL_ACCESS_TOKEN": "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"}
+        env={"GITHUB_PERSONAL_ACCESS_TOKEN": token}
     )
     
     async with stdio_client(server) as (read, write):

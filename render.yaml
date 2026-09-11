@@ -1,0 +1,30 @@
+# Render blueprint — deploys the FastAPI backend as a Docker web service.
+# Dashboard: New → Blueprint → point at this repo. Secret env vars (sync: false)
+# are pasted into the Render dashboard after the service is created — see DEPLOY.md.
+# autoDeploy: every push to the connected branch (main) rebuilds and redeploys.
+services:
+  - type: web
+    name: relay-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: Dockerfile
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_GEMINI_API
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: RELAY_ENGAGEMENT_ID
+        value: proj-001

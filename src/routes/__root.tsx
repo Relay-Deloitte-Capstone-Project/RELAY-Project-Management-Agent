@@ -12,7 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { periodForHour } from "../hooks/useTimePeriod";
+import { useTimePeriod } from "../hooks/useTimePeriod";
 
 function NotFoundComponent() {
   return (
@@ -103,9 +103,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: ReactNode }) {
-  const period = periodForHour(new Date().getHours());
+  const period = useTimePeriod();
   return (
-    <html lang="en" data-period={period}>
+    <html lang="en" data-period={period} suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
