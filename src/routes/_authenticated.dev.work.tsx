@@ -118,7 +118,7 @@ function MyWork() {
             icon={<ListChecks className="size-3.5 text-mute" />}
             action={
               <Link to="/dev/coverage" className="text-[13px] font-medium text-brand">
-                Show more
+                {tickets && tickets.length > 6 ? `Show all ${tickets.length}` : "Show more"}
               </Link>
             }
           >
@@ -133,7 +133,10 @@ function MyWork() {
             )}
             {tickets && tickets.length > 0 && (
               <ul>
-                {tickets.map((t) => (
+                {[...tickets]
+                  .sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime())
+                  .slice(0, 6)
+                  .map((t) => (
                   <li
                     key={t.key}
                     className="flex items-center gap-3 border-b border-border py-2 last:border-0"
