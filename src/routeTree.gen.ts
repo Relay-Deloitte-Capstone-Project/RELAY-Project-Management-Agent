@@ -15,22 +15,30 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated.admin'
 import { Route as AuthenticatedDevRouteImport } from './routes/_authenticated.dev'
 import { Route as AuthenticatedMgrRouteImport } from './routes/_authenticated.mgr'
+import { Route as AuthenticatedAdminAccessRouteImport } from './routes/_authenticated.admin.access'
 import { Route as AuthenticatedAdminConfigRouteImport } from './routes/_authenticated.admin.config'
 import { Route as AuthenticatedAdminDashboardRouteImport } from './routes/_authenticated.admin.dashboard'
+import { Route as AuthenticatedAdminGovernanceRouteImport } from './routes/_authenticated.admin.governance'
 import { Route as AuthenticatedAdminIngestionRouteImport } from './routes/_authenticated.admin.ingestion'
+import { Route as AuthenticatedAdminProjectSetupRouteImport } from './routes/_authenticated.admin.project-setup'
+import { Route as AuthenticatedAdminProjectsRouteImport } from './routes/_authenticated.admin.projects'
 import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated.admin.users'
 import { Route as AuthenticatedDevAskRouteImport } from './routes/_authenticated.dev.ask'
 import { Route as AuthenticatedDevCoverageRouteImport } from './routes/_authenticated.dev.coverage'
 import { Route as AuthenticatedDevEpicsRouteImport } from './routes/_authenticated.dev.epics'
 import { Route as AuthenticatedDevScratchpadRouteImport } from './routes/_authenticated.dev.scratchpad'
 import { Route as AuthenticatedDevWorkRouteImport } from './routes/_authenticated.dev.work'
-import { Route as AuthenticatedMgrAdminRouteImport } from './routes/_authenticated.mgr.admin'
 import { Route as AuthenticatedMgrDashboardRouteImport } from './routes/_authenticated.mgr.dashboard'
 import { Route as AuthenticatedMgrEpicsRouteImport } from './routes/_authenticated.mgr.epics'
+import { Route as AuthenticatedMgrHandoverKitRouteImport } from './routes/_authenticated.mgr.handover-kit'
+import { Route as AuthenticatedMgrOnboardingKitRouteImport } from './routes/_authenticated.mgr.onboarding-kit'
 import { Route as AuthenticatedMgrScopeRouteImport } from './routes/_authenticated.mgr.scope'
 import { Route as AuthenticatedMgrTeamRouteImport } from './routes/_authenticated.mgr.team'
+import { Route as AuthenticatedAdminProjectsNewRouteImport } from './routes/_authenticated.admin.projects.new'
 import { Route as AuthenticatedMgrTeamIndexRouteImport } from './routes/_authenticated.mgr.team.index'
 import { Route as AuthenticatedMgrTeamIdRouteImport } from './routes/_authenticated.mgr.team.$id'
+import { Route as AuthenticatedMgrTeamIdHandoverKitRouteImport } from './routes/_authenticated.mgr.team.$id.handover-kit'
+import { Route as AuthenticatedMgrTeamIdOnboardingKitRouteImport } from './routes/_authenticated.mgr.team.$id.onboarding-kit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -61,6 +69,12 @@ const AuthenticatedMgrRoute = AuthenticatedMgrRouteImport.update({
   path: '/mgr',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAdminAccessRoute =
+  AuthenticatedAdminAccessRouteImport.update({
+    id: '/access',
+    path: '/access',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const AuthenticatedAdminConfigRoute =
   AuthenticatedAdminConfigRouteImport.update({
     id: '/config',
@@ -73,10 +87,28 @@ const AuthenticatedAdminDashboardRoute =
     path: '/dashboard',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedAdminGovernanceRoute =
+  AuthenticatedAdminGovernanceRouteImport.update({
+    id: '/governance',
+    path: '/governance',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
 const AuthenticatedAdminIngestionRoute =
   AuthenticatedAdminIngestionRouteImport.update({
     id: '/ingestion',
     path: '/ingestion',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminProjectSetupRoute =
+  AuthenticatedAdminProjectSetupRouteImport.update({
+    id: '/project-setup',
+    path: '/project-setup',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminProjectsRoute =
+  AuthenticatedAdminProjectsRouteImport.update({
+    id: '/projects',
+    path: '/projects',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
 const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
@@ -111,11 +143,6 @@ const AuthenticatedDevWorkRoute = AuthenticatedDevWorkRouteImport.update({
   path: '/work',
   getParentRoute: () => AuthenticatedDevRoute,
 } as any)
-const AuthenticatedMgrAdminRoute = AuthenticatedMgrAdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => AuthenticatedMgrRoute,
-} as any)
 const AuthenticatedMgrDashboardRoute =
   AuthenticatedMgrDashboardRouteImport.update({
     id: '/dashboard',
@@ -127,6 +154,18 @@ const AuthenticatedMgrEpicsRoute = AuthenticatedMgrEpicsRouteImport.update({
   path: '/epics',
   getParentRoute: () => AuthenticatedMgrRoute,
 } as any)
+const AuthenticatedMgrHandoverKitRoute =
+  AuthenticatedMgrHandoverKitRouteImport.update({
+    id: '/handover-kit',
+    path: '/handover-kit',
+    getParentRoute: () => AuthenticatedMgrRoute,
+  } as any)
+const AuthenticatedMgrOnboardingKitRoute =
+  AuthenticatedMgrOnboardingKitRouteImport.update({
+    id: '/onboarding-kit',
+    path: '/onboarding-kit',
+    getParentRoute: () => AuthenticatedMgrRoute,
+  } as any)
 const AuthenticatedMgrScopeRoute = AuthenticatedMgrScopeRouteImport.update({
   id: '/scope',
   path: '/scope',
@@ -137,6 +176,12 @@ const AuthenticatedMgrTeamRoute = AuthenticatedMgrTeamRouteImport.update({
   path: '/team',
   getParentRoute: () => AuthenticatedMgrRoute,
 } as any)
+const AuthenticatedAdminProjectsNewRoute =
+  AuthenticatedAdminProjectsNewRouteImport.update({
+    id: '/new',
+    path: '/new',
+    getParentRoute: () => AuthenticatedAdminProjectsRoute,
+  } as any)
 const AuthenticatedMgrTeamIndexRoute =
   AuthenticatedMgrTeamIndexRouteImport.update({
     id: '/',
@@ -148,6 +193,18 @@ const AuthenticatedMgrTeamIdRoute = AuthenticatedMgrTeamIdRouteImport.update({
   path: '/$id',
   getParentRoute: () => AuthenticatedMgrTeamRoute,
 } as any)
+const AuthenticatedMgrTeamIdHandoverKitRoute =
+  AuthenticatedMgrTeamIdHandoverKitRouteImport.update({
+    id: '/handover-kit',
+    path: '/handover-kit',
+    getParentRoute: () => AuthenticatedMgrTeamIdRoute,
+  } as any)
+const AuthenticatedMgrTeamIdOnboardingKitRoute =
+  AuthenticatedMgrTeamIdOnboardingKitRouteImport.update({
+    id: '/onboarding-kit',
+    path: '/onboarding-kit',
+    getParentRoute: () => AuthenticatedMgrTeamIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -155,22 +212,30 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/dev': typeof AuthenticatedDevRouteWithChildren
   '/mgr': typeof AuthenticatedMgrRouteWithChildren
+  '/admin/access': typeof AuthenticatedAdminAccessRoute
   '/admin/config': typeof AuthenticatedAdminConfigRoute
   '/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
+  '/admin/governance': typeof AuthenticatedAdminGovernanceRoute
   '/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
+  '/admin/project-setup': typeof AuthenticatedAdminProjectSetupRoute
+  '/admin/projects': typeof AuthenticatedAdminProjectsRouteWithChildren
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/dev/ask': typeof AuthenticatedDevAskRoute
   '/dev/coverage': typeof AuthenticatedDevCoverageRoute
   '/dev/epics': typeof AuthenticatedDevEpicsRoute
   '/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
   '/dev/work': typeof AuthenticatedDevWorkRoute
-  '/mgr/admin': typeof AuthenticatedMgrAdminRoute
   '/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
   '/mgr/epics': typeof AuthenticatedMgrEpicsRoute
+  '/mgr/handover-kit': typeof AuthenticatedMgrHandoverKitRoute
+  '/mgr/onboarding-kit': typeof AuthenticatedMgrOnboardingKitRoute
   '/mgr/scope': typeof AuthenticatedMgrScopeRoute
   '/mgr/team': typeof AuthenticatedMgrTeamRouteWithChildren
-  '/mgr/team/$id': typeof AuthenticatedMgrTeamIdRoute
+  '/admin/projects/new': typeof AuthenticatedAdminProjectsNewRoute
+  '/mgr/team/$id': typeof AuthenticatedMgrTeamIdRouteWithChildren
   '/mgr/team/': typeof AuthenticatedMgrTeamIndexRoute
+  '/mgr/team/$id/handover-kit': typeof AuthenticatedMgrTeamIdHandoverKitRoute
+  '/mgr/team/$id/onboarding-kit': typeof AuthenticatedMgrTeamIdOnboardingKitRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -178,21 +243,29 @@ export interface FileRoutesByTo {
   '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/dev': typeof AuthenticatedDevRouteWithChildren
   '/mgr': typeof AuthenticatedMgrRouteWithChildren
+  '/admin/access': typeof AuthenticatedAdminAccessRoute
   '/admin/config': typeof AuthenticatedAdminConfigRoute
   '/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
+  '/admin/governance': typeof AuthenticatedAdminGovernanceRoute
   '/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
+  '/admin/project-setup': typeof AuthenticatedAdminProjectSetupRoute
+  '/admin/projects': typeof AuthenticatedAdminProjectsRouteWithChildren
   '/admin/users': typeof AuthenticatedAdminUsersRoute
   '/dev/ask': typeof AuthenticatedDevAskRoute
   '/dev/coverage': typeof AuthenticatedDevCoverageRoute
   '/dev/epics': typeof AuthenticatedDevEpicsRoute
   '/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
   '/dev/work': typeof AuthenticatedDevWorkRoute
-  '/mgr/admin': typeof AuthenticatedMgrAdminRoute
   '/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
   '/mgr/epics': typeof AuthenticatedMgrEpicsRoute
+  '/mgr/handover-kit': typeof AuthenticatedMgrHandoverKitRoute
+  '/mgr/onboarding-kit': typeof AuthenticatedMgrOnboardingKitRoute
   '/mgr/scope': typeof AuthenticatedMgrScopeRoute
-  '/mgr/team/$id': typeof AuthenticatedMgrTeamIdRoute
+  '/admin/projects/new': typeof AuthenticatedAdminProjectsNewRoute
+  '/mgr/team/$id': typeof AuthenticatedMgrTeamIdRouteWithChildren
   '/mgr/team': typeof AuthenticatedMgrTeamIndexRoute
+  '/mgr/team/$id/handover-kit': typeof AuthenticatedMgrTeamIdHandoverKitRoute
+  '/mgr/team/$id/onboarding-kit': typeof AuthenticatedMgrTeamIdOnboardingKitRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -202,22 +275,30 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/dev': typeof AuthenticatedDevRouteWithChildren
   '/_authenticated/mgr': typeof AuthenticatedMgrRouteWithChildren
+  '/_authenticated/admin/access': typeof AuthenticatedAdminAccessRoute
   '/_authenticated/admin/config': typeof AuthenticatedAdminConfigRoute
   '/_authenticated/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
+  '/_authenticated/admin/governance': typeof AuthenticatedAdminGovernanceRoute
   '/_authenticated/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
+  '/_authenticated/admin/project-setup': typeof AuthenticatedAdminProjectSetupRoute
+  '/_authenticated/admin/projects': typeof AuthenticatedAdminProjectsRouteWithChildren
   '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
   '/_authenticated/dev/ask': typeof AuthenticatedDevAskRoute
   '/_authenticated/dev/coverage': typeof AuthenticatedDevCoverageRoute
   '/_authenticated/dev/epics': typeof AuthenticatedDevEpicsRoute
   '/_authenticated/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
   '/_authenticated/dev/work': typeof AuthenticatedDevWorkRoute
-  '/_authenticated/mgr/admin': typeof AuthenticatedMgrAdminRoute
   '/_authenticated/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
   '/_authenticated/mgr/epics': typeof AuthenticatedMgrEpicsRoute
+  '/_authenticated/mgr/handover-kit': typeof AuthenticatedMgrHandoverKitRoute
+  '/_authenticated/mgr/onboarding-kit': typeof AuthenticatedMgrOnboardingKitRoute
   '/_authenticated/mgr/scope': typeof AuthenticatedMgrScopeRoute
   '/_authenticated/mgr/team': typeof AuthenticatedMgrTeamRouteWithChildren
-  '/_authenticated/mgr/team/$id': typeof AuthenticatedMgrTeamIdRoute
+  '/_authenticated/admin/projects/new': typeof AuthenticatedAdminProjectsNewRoute
+  '/_authenticated/mgr/team/$id': typeof AuthenticatedMgrTeamIdRouteWithChildren
   '/_authenticated/mgr/team/': typeof AuthenticatedMgrTeamIndexRoute
+  '/_authenticated/mgr/team/$id/handover-kit': typeof AuthenticatedMgrTeamIdHandoverKitRoute
+  '/_authenticated/mgr/team/$id/onboarding-kit': typeof AuthenticatedMgrTeamIdOnboardingKitRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -227,22 +308,30 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dev'
     | '/mgr'
+    | '/admin/access'
     | '/admin/config'
     | '/admin/dashboard'
+    | '/admin/governance'
     | '/admin/ingestion'
+    | '/admin/project-setup'
+    | '/admin/projects'
     | '/admin/users'
     | '/dev/ask'
     | '/dev/coverage'
     | '/dev/epics'
     | '/dev/scratchpad'
     | '/dev/work'
-    | '/mgr/admin'
     | '/mgr/dashboard'
     | '/mgr/epics'
+    | '/mgr/handover-kit'
+    | '/mgr/onboarding-kit'
     | '/mgr/scope'
     | '/mgr/team'
+    | '/admin/projects/new'
     | '/mgr/team/$id'
     | '/mgr/team/'
+    | '/mgr/team/$id/handover-kit'
+    | '/mgr/team/$id/onboarding-kit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -250,21 +339,29 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dev'
     | '/mgr'
+    | '/admin/access'
     | '/admin/config'
     | '/admin/dashboard'
+    | '/admin/governance'
     | '/admin/ingestion'
+    | '/admin/project-setup'
+    | '/admin/projects'
     | '/admin/users'
     | '/dev/ask'
     | '/dev/coverage'
     | '/dev/epics'
     | '/dev/scratchpad'
     | '/dev/work'
-    | '/mgr/admin'
     | '/mgr/dashboard'
     | '/mgr/epics'
+    | '/mgr/handover-kit'
+    | '/mgr/onboarding-kit'
     | '/mgr/scope'
+    | '/admin/projects/new'
     | '/mgr/team/$id'
     | '/mgr/team'
+    | '/mgr/team/$id/handover-kit'
+    | '/mgr/team/$id/onboarding-kit'
   id:
     | '__root__'
     | '/'
@@ -273,22 +370,30 @@ export interface FileRouteTypes {
     | '/_authenticated/admin'
     | '/_authenticated/dev'
     | '/_authenticated/mgr'
+    | '/_authenticated/admin/access'
     | '/_authenticated/admin/config'
     | '/_authenticated/admin/dashboard'
+    | '/_authenticated/admin/governance'
     | '/_authenticated/admin/ingestion'
+    | '/_authenticated/admin/project-setup'
+    | '/_authenticated/admin/projects'
     | '/_authenticated/admin/users'
     | '/_authenticated/dev/ask'
     | '/_authenticated/dev/coverage'
     | '/_authenticated/dev/epics'
     | '/_authenticated/dev/scratchpad'
     | '/_authenticated/dev/work'
-    | '/_authenticated/mgr/admin'
     | '/_authenticated/mgr/dashboard'
     | '/_authenticated/mgr/epics'
+    | '/_authenticated/mgr/handover-kit'
+    | '/_authenticated/mgr/onboarding-kit'
     | '/_authenticated/mgr/scope'
     | '/_authenticated/mgr/team'
+    | '/_authenticated/admin/projects/new'
     | '/_authenticated/mgr/team/$id'
     | '/_authenticated/mgr/team/'
+    | '/_authenticated/mgr/team/$id/handover-kit'
+    | '/_authenticated/mgr/team/$id/onboarding-kit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -341,6 +446,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMgrRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin/access': {
+      id: '/_authenticated/admin/access'
+      path: '/access'
+      fullPath: '/admin/access'
+      preLoaderRoute: typeof AuthenticatedAdminAccessRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/admin/config': {
       id: '/_authenticated/admin/config'
       path: '/config'
@@ -355,11 +467,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminDashboardRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/admin/governance': {
+      id: '/_authenticated/admin/governance'
+      path: '/governance'
+      fullPath: '/admin/governance'
+      preLoaderRoute: typeof AuthenticatedAdminGovernanceRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/admin/ingestion': {
       id: '/_authenticated/admin/ingestion'
       path: '/ingestion'
       fullPath: '/admin/ingestion'
       preLoaderRoute: typeof AuthenticatedAdminIngestionRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/project-setup': {
+      id: '/_authenticated/admin/project-setup'
+      path: '/project-setup'
+      fullPath: '/admin/project-setup'
+      preLoaderRoute: typeof AuthenticatedAdminProjectSetupRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/projects': {
+      id: '/_authenticated/admin/projects'
+      path: '/projects'
+      fullPath: '/admin/projects'
+      preLoaderRoute: typeof AuthenticatedAdminProjectsRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
     '/_authenticated/admin/users': {
@@ -404,13 +537,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDevWorkRouteImport
       parentRoute: typeof AuthenticatedDevRoute
     }
-    '/_authenticated/mgr/admin': {
-      id: '/_authenticated/mgr/admin'
-      path: '/admin'
-      fullPath: '/mgr/admin'
-      preLoaderRoute: typeof AuthenticatedMgrAdminRouteImport
-      parentRoute: typeof AuthenticatedMgrRoute
-    }
     '/_authenticated/mgr/dashboard': {
       id: '/_authenticated/mgr/dashboard'
       path: '/dashboard'
@@ -423,6 +549,20 @@ declare module '@tanstack/react-router' {
       path: '/epics'
       fullPath: '/mgr/epics'
       preLoaderRoute: typeof AuthenticatedMgrEpicsRouteImport
+      parentRoute: typeof AuthenticatedMgrRoute
+    }
+    '/_authenticated/mgr/handover-kit': {
+      id: '/_authenticated/mgr/handover-kit'
+      path: '/handover-kit'
+      fullPath: '/mgr/handover-kit'
+      preLoaderRoute: typeof AuthenticatedMgrHandoverKitRouteImport
+      parentRoute: typeof AuthenticatedMgrRoute
+    }
+    '/_authenticated/mgr/onboarding-kit': {
+      id: '/_authenticated/mgr/onboarding-kit'
+      path: '/onboarding-kit'
+      fullPath: '/mgr/onboarding-kit'
+      preLoaderRoute: typeof AuthenticatedMgrOnboardingKitRouteImport
       parentRoute: typeof AuthenticatedMgrRoute
     }
     '/_authenticated/mgr/scope': {
@@ -439,6 +579,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMgrTeamRouteImport
       parentRoute: typeof AuthenticatedMgrRoute
     }
+    '/_authenticated/admin/projects/new': {
+      id: '/_authenticated/admin/projects/new'
+      path: '/new'
+      fullPath: '/admin/projects/new'
+      preLoaderRoute: typeof AuthenticatedAdminProjectsNewRouteImport
+      parentRoute: typeof AuthenticatedAdminProjectsRoute
+    }
     '/_authenticated/mgr/team/': {
       id: '/_authenticated/mgr/team/'
       path: '/'
@@ -453,20 +600,56 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMgrTeamIdRouteImport
       parentRoute: typeof AuthenticatedMgrTeamRoute
     }
+    '/_authenticated/mgr/team/$id/handover-kit': {
+      id: '/_authenticated/mgr/team/$id/handover-kit'
+      path: '/handover-kit'
+      fullPath: '/mgr/team/$id/handover-kit'
+      preLoaderRoute: typeof AuthenticatedMgrTeamIdHandoverKitRouteImport
+      parentRoute: typeof AuthenticatedMgrTeamIdRoute
+    }
+    '/_authenticated/mgr/team/$id/onboarding-kit': {
+      id: '/_authenticated/mgr/team/$id/onboarding-kit'
+      path: '/onboarding-kit'
+      fullPath: '/mgr/team/$id/onboarding-kit'
+      preLoaderRoute: typeof AuthenticatedMgrTeamIdOnboardingKitRouteImport
+      parentRoute: typeof AuthenticatedMgrTeamIdRoute
+    }
   }
 }
 
+interface AuthenticatedAdminProjectsRouteChildren {
+  AuthenticatedAdminProjectsNewRoute: typeof AuthenticatedAdminProjectsNewRoute
+}
+
+const AuthenticatedAdminProjectsRouteChildren: AuthenticatedAdminProjectsRouteChildren =
+  {
+    AuthenticatedAdminProjectsNewRoute: AuthenticatedAdminProjectsNewRoute,
+  }
+
+const AuthenticatedAdminProjectsRouteWithChildren =
+  AuthenticatedAdminProjectsRoute._addFileChildren(
+    AuthenticatedAdminProjectsRouteChildren,
+  )
+
 interface AuthenticatedAdminRouteChildren {
+  AuthenticatedAdminAccessRoute: typeof AuthenticatedAdminAccessRoute
   AuthenticatedAdminConfigRoute: typeof AuthenticatedAdminConfigRoute
   AuthenticatedAdminDashboardRoute: typeof AuthenticatedAdminDashboardRoute
+  AuthenticatedAdminGovernanceRoute: typeof AuthenticatedAdminGovernanceRoute
   AuthenticatedAdminIngestionRoute: typeof AuthenticatedAdminIngestionRoute
+  AuthenticatedAdminProjectSetupRoute: typeof AuthenticatedAdminProjectSetupRoute
+  AuthenticatedAdminProjectsRoute: typeof AuthenticatedAdminProjectsRouteWithChildren
   AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
 }
 
 const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
+  AuthenticatedAdminAccessRoute: AuthenticatedAdminAccessRoute,
   AuthenticatedAdminConfigRoute: AuthenticatedAdminConfigRoute,
   AuthenticatedAdminDashboardRoute: AuthenticatedAdminDashboardRoute,
+  AuthenticatedAdminGovernanceRoute: AuthenticatedAdminGovernanceRoute,
   AuthenticatedAdminIngestionRoute: AuthenticatedAdminIngestionRoute,
+  AuthenticatedAdminProjectSetupRoute: AuthenticatedAdminProjectSetupRoute,
+  AuthenticatedAdminProjectsRoute: AuthenticatedAdminProjectsRouteWithChildren,
   AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
 }
 
@@ -492,13 +675,31 @@ const AuthenticatedDevRouteChildren: AuthenticatedDevRouteChildren = {
 const AuthenticatedDevRouteWithChildren =
   AuthenticatedDevRoute._addFileChildren(AuthenticatedDevRouteChildren)
 
+interface AuthenticatedMgrTeamIdRouteChildren {
+  AuthenticatedMgrTeamIdHandoverKitRoute: typeof AuthenticatedMgrTeamIdHandoverKitRoute
+  AuthenticatedMgrTeamIdOnboardingKitRoute: typeof AuthenticatedMgrTeamIdOnboardingKitRoute
+}
+
+const AuthenticatedMgrTeamIdRouteChildren: AuthenticatedMgrTeamIdRouteChildren =
+  {
+    AuthenticatedMgrTeamIdHandoverKitRoute:
+      AuthenticatedMgrTeamIdHandoverKitRoute,
+    AuthenticatedMgrTeamIdOnboardingKitRoute:
+      AuthenticatedMgrTeamIdOnboardingKitRoute,
+  }
+
+const AuthenticatedMgrTeamIdRouteWithChildren =
+  AuthenticatedMgrTeamIdRoute._addFileChildren(
+    AuthenticatedMgrTeamIdRouteChildren,
+  )
+
 interface AuthenticatedMgrTeamRouteChildren {
-  AuthenticatedMgrTeamIdRoute: typeof AuthenticatedMgrTeamIdRoute
+  AuthenticatedMgrTeamIdRoute: typeof AuthenticatedMgrTeamIdRouteWithChildren
   AuthenticatedMgrTeamIndexRoute: typeof AuthenticatedMgrTeamIndexRoute
 }
 
 const AuthenticatedMgrTeamRouteChildren: AuthenticatedMgrTeamRouteChildren = {
-  AuthenticatedMgrTeamIdRoute: AuthenticatedMgrTeamIdRoute,
+  AuthenticatedMgrTeamIdRoute: AuthenticatedMgrTeamIdRouteWithChildren,
   AuthenticatedMgrTeamIndexRoute: AuthenticatedMgrTeamIndexRoute,
 }
 
@@ -506,17 +707,19 @@ const AuthenticatedMgrTeamRouteWithChildren =
   AuthenticatedMgrTeamRoute._addFileChildren(AuthenticatedMgrTeamRouteChildren)
 
 interface AuthenticatedMgrRouteChildren {
-  AuthenticatedMgrAdminRoute: typeof AuthenticatedMgrAdminRoute
   AuthenticatedMgrDashboardRoute: typeof AuthenticatedMgrDashboardRoute
   AuthenticatedMgrEpicsRoute: typeof AuthenticatedMgrEpicsRoute
+  AuthenticatedMgrHandoverKitRoute: typeof AuthenticatedMgrHandoverKitRoute
+  AuthenticatedMgrOnboardingKitRoute: typeof AuthenticatedMgrOnboardingKitRoute
   AuthenticatedMgrScopeRoute: typeof AuthenticatedMgrScopeRoute
   AuthenticatedMgrTeamRoute: typeof AuthenticatedMgrTeamRouteWithChildren
 }
 
 const AuthenticatedMgrRouteChildren: AuthenticatedMgrRouteChildren = {
-  AuthenticatedMgrAdminRoute: AuthenticatedMgrAdminRoute,
   AuthenticatedMgrDashboardRoute: AuthenticatedMgrDashboardRoute,
   AuthenticatedMgrEpicsRoute: AuthenticatedMgrEpicsRoute,
+  AuthenticatedMgrHandoverKitRoute: AuthenticatedMgrHandoverKitRoute,
+  AuthenticatedMgrOnboardingKitRoute: AuthenticatedMgrOnboardingKitRoute,
   AuthenticatedMgrScopeRoute: AuthenticatedMgrScopeRoute,
   AuthenticatedMgrTeamRoute: AuthenticatedMgrTeamRouteWithChildren,
 }
