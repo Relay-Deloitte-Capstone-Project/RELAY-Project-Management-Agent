@@ -3,11 +3,9 @@ generator client {
 }
 
 datasource db {
-  // No Postgres server is reachable in this environment (no local install,
-  // no running Docker daemon), so this uses SQLite as a zero-config
-  // substitute. Swap provider to "postgresql" and point DATABASE_URL at a
-  // real server to move to Postgres later — the schema below is unchanged.
-  provider = "sqlite"
+  // Postgres everywhere: Neon (free tier) in production, any local Postgres
+  // for dev. Set DATABASE_URL accordingly — see DEPLOY.md for the hosted setup.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
