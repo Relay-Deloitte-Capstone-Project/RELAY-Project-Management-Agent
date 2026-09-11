@@ -28,20 +28,25 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-export function SprintBurndown() {
+export function SprintBurndown({ sprintId }: { sprintId?: number | undefined }) {
   const [data, setData] = useState<BurndownResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
+  const [zoomWeek, setZoomWeek] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/api/analytics/burndown`);
+        const query = sprintId !== undefined ? `?sprint_id=${sprintId}` : "";
+        const res = await fetch(`${API_URL}/api/analytics/burndown${query}`);
         if (!res.ok) throw new Error(`Request failed (${res.status})`);
         const json: BurndownResponse = await res.json();
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          setZoomWeek(null);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Couldn't load burndown data.");
@@ -51,7 +56,7 @@ export function SprintBurndown() {
     return () => {
       cancelled = true;
     };
-  }, [retryTick]);
+  }, [retryTick, sprintId]);
 
   if (error) {
     return (
@@ -79,23 +84,29 @@ export function SprintBurndown() {
   if (!data.sprint) {
     return (
       <Panel title="Sprint burndown">
-        <p className="text-[13px] text-mute">No active sprint on the board right now.</p>
+        <p className="text-[13px] text-mute">No sprint data to show.</p>
       </Panel>
     );
   }
 
   const actualByDate = new Map(data.actual.map((p) => [p.date, p.remaining]));
-  // Single real data point, deliberately — no changelog ingestion means no
-  // history of remaining-count-per-day, so only "today" is genuinely known;
-  // a fabricated daily-actual series would misrepresent that (see
-  // backend/api/analytics.py). It still overlays on the same ideal-line
-  // chart as one dot, rather than a second disconnected chart.
+  // Real remaining-count-per-day, built from each issue's actual Jira status
+  // changelog (see backend/api/analytics.py) — a step function, since a
+  // ticket count only moves on the day a ticket's status actually changes.
   const chartData: ChartRow[] = data.ideal.map((p) => ({
     date: p.date,
     dateLabel: formatDate(p.date),
     ideal: p.remaining,
     actual: actualByDate.get(p.date) ?? null,
   }));
+
+  // Chunk the sprint into 7-day weeks for the zoom chips. A sprint one week
+  // or shorter has nothing to zoom into, so the chip row only appears once
+  // there's more than one week to pick from.
+  const weeks: ChartRow[][] = [];
+  for (let i = 0; i < chartData.length; i += 7) weeks.push(chartData.slice(i, i + 7));
+  const visibleData = zoomWeek !== null && weeks[zoomWeek] ? weeks[zoomWeek] : chartData;
+  const realDayCount = data.actual.length;
 
   return (
     <Panel
@@ -106,9 +117,34 @@ export function SprintBurndown() {
         </span>
       }
     >
+      {weeks.length > 1 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setZoomWeek(null)}
+            className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-150 ${
+              zoomWeek === null ? "bg-brand text-brand-foreground" : "bg-surface-sunken text-mute hover:text-ink"
+            }`}
+          >
+            Full sprint
+          </button>
+          {weeks.map((week, i) => (
+            <button
+              key={week[0]?.date ?? i}
+              type="button"
+              onClick={() => setZoomWeek(i)}
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-150 ${
+                zoomWeek === i ? "bg-brand text-brand-foreground" : "bg-surface-sunken text-mute hover:text-ink"
+              }`}
+            >
+              {week[0]?.dateLabel} – {week[week.length - 1]?.dateLabel}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
+          <LineChart data={visibleData} margin={{ top: 8, right: 12, left: -16, bottom: 0 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="dateLabel"
@@ -142,12 +178,13 @@ export function SprintBurndown() {
               isAnimationActive={false}
             />
             <Line
-              type="monotone"
+              type="stepAfter"
               dataKey="actual"
               name="Actual"
               stroke="var(--success)"
-              strokeWidth={0}
-              dot={{ r: 5, fill: "var(--success)", strokeWidth: 0 }}
+              strokeWidth={2}
+              dot={{ r: 3, fill: "var(--success)", strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
               connectNulls={false}
               isAnimationActive={false}
             />
@@ -155,8 +192,9 @@ export function SprintBurndown() {
         </ResponsiveContainer>
       </div>
       <p className="mt-2 text-[11px] text-mute">
-        Dashed line is the ideal linear burn. The dot is today&apos;s real remaining-ticket count
-        — there&apos;s no daily history to plot a full actual line yet.
+        Dashed line is the ideal linear burn. Solid line is the real remaining-ticket count per
+        day, from Jira&apos;s own status history — {realDayCount} real day{realDayCount === 1 ? "" : "s"}{" "}
+        of data for this sprint so far.
       </p>
     </Panel>
   );

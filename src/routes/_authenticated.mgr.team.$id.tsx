@@ -1,6 +1,16 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useState } from "react";
-import { Ban, ClipboardList, GitBranch, Lightbulb, MessageSquareText, Zap } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import {
+  ClipboardList,
+  GitBranch,
+  Lightbulb,
+  Loader2,
+  MessageSquareText,
+  PackageOpen,
+  Rocket,
+  Search,
+  Zap,
+} from "lucide-react";
 import { AppShell } from "@/components/relay/AppShell";
 import {
   Avatar,
@@ -21,35 +31,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { handoverDetails, teamMembers, type HandoverSituation } from "@/lib/mockData";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/mgr/team/$id")({
-  loader: ({ params }) => {
-    const member = teamMembers.find((m) => m.id === params.id);
-    if (!member) throw notFound();
-    return { member };
-  },
-  head: ({ loaderData }) => ({
+  head: () => ({
     meta: [
-      { title: `${loaderData?.member.name ?? "Handover"} — Relay` },
+      { title: "Handover — Relay" },
       {
         name: "description",
         content:
-          "Full work state, assignable handover, and knowledge-risk view assembled from Git and Jira, not from memory.",
+          "Full work state, assignable handover, and knowledge-risk view assembled from Jira and, where recorded, Git.",
       },
     ],
   }),
   component: TeamMemberHandover,
 });
 
-const TABS = ["Work state", "Assign handover", "Knowledge risks", "Handover kit"] as const;
+const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
+
+const TABS = ["Work state", "Assign handover", "Knowledge risks"] as const;
 type Tab = (typeof TABS)[number];
 
 const SITUATIONS: { id: HandoverSituation; label: string }[] = [
   { id: "leave", label: "On leave" },
   { id: "leaving", label: "Leaving project" },
-  { id: "onboarding", label: "Onboarding kit" },
 ];
 
 const situationNote: Record<HandoverSituation, (firstName: string) => string> = {
@@ -57,8 +64,7 @@ const situationNote: Record<HandoverSituation, (firstName: string) => string> = 
     `${name} is on leave and expected back — coverage below is temporary. Focus on what needs an owner day-to-day, not a full knowledge transfer.`,
   leaving: (name) =>
     `${name} is leaving the project for good — treat the Knowledge risks tab as the priority. Anything unrecoverable there needs a transfer before the last day.`,
-  onboarding: () =>
-    "This page is still a single person's handover. For project-wide onboarding context, go back to Team handover and use the project overview instead.",
+  onboarding: () => "",
 };
 
 const priorityTone: Record<string, "danger" | "warning" | "success" | "neutral"> = {
@@ -74,21 +80,101 @@ const riskDot: Record<"high" | "medium" | "low", string> = {
   low: "bg-success",
 };
 
+type JiraMember = {
+  account_id: string;
+  name: string;
+  to_do: number;
+  in_progress: number;
+  done: number;
+};
+type Ticket = { key: string; summary: string; status: string; created: string };
+type MockDetail = (typeof handoverDetails)[string];
+
 function TeamMemberHandover() {
   const { user } = Route.useRouteContext();
-  const { member } = Route.useLoaderData();
-  const detail = handoverDetails[member.id];
-  const [tab, setTab] = useState<Tab>("Work state");
-  const [situation, setSituation] = useState<HandoverSituation>(
-    member.onLeave ? "leave" : "leaving",
-  );
+  const { id } = Route.useParams();
 
-  if (!detail) {
+  const [team, setTeam] = useState<JiraMember[] | null>(null);
+  const [tickets, setTickets] = useState<Ticket[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("Work state");
+  const [situation, setSituation] = useState<HandoverSituation>("leaving");
+
+  const member = team?.find((m) => m.account_id === id);
+  // The old mock handover content (branches, PRs, recent commits, knowledge
+  // risks — nothing Jira has) is keyed by 4 of the same 8 real names this
+  // team roster uses. Real people outside that set of 4 simply have no
+  // mock detail, same as before — every panel that reads from `detail`
+  // already handles it being undefined.
+  const mockMember = member ? teamMembers.find((m) => m.name === member.name) : undefined;
+  const detail: MockDetail | undefined = mockMember ? handoverDetails[mockMember.id] : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/project/team`);
+        if (!res.ok) throw new Error("Request failed");
+        const json: JiraMember[] = await res.json();
+        if (!cancelled) setTeam(json);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load the team.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!member) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/api/project/tickets?assignee=${encodeURIComponent(member.name)}`,
+        );
+        if (!res.ok) throw new Error("Request failed");
+        const json: Ticket[] = await res.json();
+        if (!cancelled) setTickets(json);
+      } catch (err) {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Couldn't load their tickets.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [member?.name]);
+
+  if (error) {
     return (
-      <AppShell user={user} title={`${member.name} — handover`}>
+      <AppShell user={user} title="Handover">
+        <PageSection>
+          <p className="text-[13px] text-danger">{error}</p>
+        </PageSection>
+      </AppShell>
+    );
+  }
+
+  if (!team) {
+    return (
+      <AppShell user={user} title="Handover">
+        <PageSection>
+          <div className="flex items-center gap-2 text-[13px] text-mute">
+            <Loader2 className="size-3.5 animate-spin" /> Loading…
+          </div>
+        </PageSection>
+      </AppShell>
+    );
+  }
+
+  if (!member) {
+    return (
+      <AppShell user={user} title="Handover">
         <PageSection>
           <Panel>
-            <p className="text-[13px] text-mute">No handover data recorded for this person yet.</p>
+            <p className="text-[13px] text-mute">No one on the team matches this link.</p>
           </Panel>
         </PageSection>
       </AppShell>
@@ -96,7 +182,7 @@ function TeamMemberHandover() {
   }
 
   const firstName = member.name.split(" ")[0] ?? member.name;
-  const otherMembers = teamMembers.filter((m) => m.id !== member.id);
+  const otherMembers = team.filter((m) => m.account_id !== member.account_id);
 
   return (
     <AppShell user={user} title={`${member.name} — handover`}>
@@ -107,14 +193,18 @@ function TeamMemberHandover() {
 
         <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Avatar initials={member.initials} tone={member.tone} size={44} />
+            <Avatar
+              initials={mockMember?.initials ?? member.name.slice(0, 2).toUpperCase()}
+              size={44}
+            />
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-[16px] font-medium text-ink">{member.name}</h2>
-                {member.onLeave ? <Chip tone="warning">On leave</Chip> : null}
+                {mockMember?.onLeave ? <Chip tone="warning">On leave</Chip> : null}
               </div>
               <p className="text-[13px] text-mute">
-                {member.role} · Last commit {member.lastCommit} · Active since {detail.activeSince}
+                {mockMember?.role ?? "Team member"}
+                {detail ? ` · Active since ${detail.activeSince}` : ""}
               </p>
             </div>
           </div>
@@ -134,6 +224,16 @@ function TeamMemberHandover() {
                 {s.label}
               </button>
             ))}
+            <Link to="/mgr/team/$id/handover-kit" params={{ id: member.account_id }}>
+              <GhostButton>
+                <PackageOpen /> Handover kit
+              </GhostButton>
+            </Link>
+            <Link to="/mgr/team/$id/onboarding-kit" params={{ id: member.account_id }}>
+              <GhostButton>
+                <Rocket /> Onboarding kit
+              </GhostButton>
+            </Link>
           </div>
         </div>
 
@@ -163,15 +263,19 @@ function TeamMemberHandover() {
       </PageSection>
 
       {tab === "Work state" ? (
-        <WorkStateTab firstName={firstName} detail={detail} openPrs={member.prs} />
+        <WorkStateTab
+          firstName={firstName}
+          detail={detail}
+          tickets={tickets}
+          openPrs={mockMember?.prs}
+        />
       ) : null}
       {tab === "Assign handover" ? (
-        <AssignHandoverTab detail={detail} otherMembers={otherMembers} />
+        <AssignHandoverTab detail={detail} tickets={tickets} otherMembers={otherMembers} />
       ) : null}
       {tab === "Knowledge risks" ? (
         <KnowledgeRisksTab firstName={firstName} detail={detail} />
       ) : null}
-      {tab === "Handover kit" ? <HandoverKitTab /> : null}
     </AppShell>
   );
 }
@@ -179,22 +283,33 @@ function TeamMemberHandover() {
 function WorkStateTab({
   firstName,
   detail,
+  tickets,
   openPrs,
 }: {
   firstName: string;
-  detail: NonNullable<(typeof handoverDetails)[string]>;
-  openPrs: number;
+  detail: MockDetail | undefined;
+  tickets: Ticket[] | null;
+  openPrs: number | undefined;
 }) {
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  // Longest-outstanding tickets first; live-filtered by key or summary.
+  const visibleTickets = tickets
+    ? [...tickets]
+        .sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
+        .filter((t) => !q || t.key.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q))
+    : null;
+
   return (
     <>
       <PageSection>
         <div className="grid grid-cols-3 gap-4">
-          <MetricCard label="Open tickets" value={detail.tickets.length} />
-          <MetricCard label="Open PRs" value={openPrs} tone="brand" />
+          <MetricCard label="Open tickets" value={tickets?.length ?? "—"} />
+          <MetricCard label="Open PRs" value={openPrs ?? "—"} tone="brand" />
           <MetricCard
             label={`Unreviewed (awaiting ${firstName})`}
-            value={detail.prsAwaiting.length}
-            tone={detail.prsAwaiting.length > 0 ? "danger" : "success"}
+            value={detail?.prsAwaiting.length ?? 0}
+            tone={(detail?.prsAwaiting.length ?? 0) > 0 ? "danger" : "success"}
           />
         </div>
       </PageSection>
@@ -202,23 +317,57 @@ function WorkStateTab({
       <PageSection>
         <div className="grid grid-cols-2 gap-4">
           <Panel title="Open tickets" icon={<Zap className="size-3.5 text-mute" />}>
-            <ul>
-              {detail.tickets.map((t) => (
-                <li key={t.key} className="border-b border-border py-2 last:border-0">
-                  <div className="flex items-center gap-2">
-                    <TicketKey>{t.key}</TicketKey>
-                    <span className="flex-grow text-[13px] text-ink">{t.title}</span>
-                    <Chip tone={priorityTone[t.priority] ?? "neutral"}>{t.priority}</Chip>
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-mute">{t.note}</div>
-                </li>
-              ))}
-            </ul>
+            {!tickets ? (
+              <div className="flex items-center gap-2 py-2 text-[13px] text-mute">
+                <Loader2 className="size-3.5 animate-spin" /> Loading…
+              </div>
+            ) : (
+              <>
+                <div className="relative mb-2">
+                  <Search className="absolute top-1/2 left-3 size-3.5 -translate-y-1/2 text-mute" />
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search by ticket ID or summary…"
+                    className="h-8 border-border bg-surface pl-9 text-[13px] placeholder:text-mute"
+                  />
+                </div>
+                <div className="max-h-[360px] overflow-y-auto">
+                  {tickets.length === 0 ? (
+                    <p className="py-2 text-[13px] text-mute">No open tickets assigned.</p>
+                  ) : visibleTickets!.length === 0 ? (
+                    <p className="py-2 text-[13px] text-mute">No tickets match “{query}”.</p>
+                  ) : (
+                    <ul>
+                      {visibleTickets!.map((t) => (
+                        <li key={t.key} className="border-b border-border py-2 last:border-0">
+                          <div className="flex items-center gap-2">
+                            <TicketKey>{t.key}</TicketKey>
+                            <span className="flex-grow text-[13px] text-ink">{t.summary}</span>
+                            <Chip
+                              tone={
+                                t.status === "Done"
+                                  ? "success"
+                                  : t.status === "In Progress"
+                                    ? "brand"
+                                    : "neutral"
+                              }
+                            >
+                              {t.status}
+                            </Chip>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            )}
           </Panel>
 
           <div className="flex flex-col gap-4">
             <Panel title="Open branches" icon={<GitBranch className="size-3.5 text-mute" />}>
-              {detail.branches.length === 0 ? (
+              {!detail || detail.branches.length === 0 ? (
                 <p className="py-2 text-[13px] text-mute">No branches ahead of main.</p>
               ) : (
                 <ul>
@@ -246,7 +395,7 @@ function WorkStateTab({
               title={`PRs awaiting ${firstName}`}
               icon={<MessageSquareText className="size-3.5 text-mute" />}
             >
-              {detail.prsAwaiting.length === 0 ? (
+              {!detail || detail.prsAwaiting.length === 0 ? (
                 <p className="py-2 text-[13px] text-mute">Nothing waiting on this person.</p>
               ) : (
                 <ul>
@@ -271,7 +420,7 @@ function WorkStateTab({
 
       <PageSection label="What was mid-flight (last 7 days of activity)">
         <Panel>
-          {detail.recentActivity.length === 0 ? (
+          {!detail || detail.recentActivity.length === 0 ? (
             <p className="py-2 text-[13px] text-mute">No commits in the last 7 days.</p>
           ) : (
             <ul>
@@ -295,10 +444,12 @@ function WorkStateTab({
 
 function AssignHandoverTab({
   detail,
+  tickets,
   otherMembers,
 }: {
-  detail: NonNullable<(typeof handoverDetails)[string]>;
-  otherMembers: (typeof teamMembers)[number][];
+  detail: MockDetail | undefined;
+  tickets: Ticket[] | null;
+  otherMembers: JiraMember[];
 }) {
   const urgencyOptions = ["Critical", "High", "Medium"] as const;
   const [ticketAssignee, setTicketAssignee] = useState<Record<string, string>>({});
@@ -316,115 +467,132 @@ function AssignHandoverTab({
           icon={<ClipboardList className="size-3.5 text-mute" />}
         >
           <div className="section-label mb-2">Ticket coverage</div>
-          <div className="mb-4 space-y-2">
-            {detail.tickets.map((t) => (
-              <div key={t.key} className="flex items-center gap-3">
-                <Chip
-                  tone={priorityTone[t.priority] ?? "neutral"}
-                  className="w-24 shrink-0 justify-center"
-                >
-                  {t.key}
-                </Chip>
-                <Select
-                  value={ticketAssignee[t.key] ?? ""}
-                  onValueChange={(v) => setTicketAssignee((prev) => ({ ...prev, [t.key]: v }))}
-                >
-                  <SelectTrigger className="h-8 flex-grow text-[13px]">
-                    <SelectValue placeholder="Select team member" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {otherMembers.map((m) => (
-                      <SelectItem key={m.id} value={m.name}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="flex shrink-0 gap-1">
-                  {urgencyOptions.map((u) => (
-                    <button
-                      key={u}
-                      type="button"
-                      onClick={() => setTicketUrgency((prev) => ({ ...prev, [t.key]: u }))}
-                      className={cn(
-                        "rounded-sm border px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150",
-                        ticketUrgency[t.key] === u
-                          ? "border-brand bg-brand-soft text-brand"
-                          : "border-border text-mute hover:text-ink",
-                      )}
-                    >
-                      {u}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="section-label mb-2">PR review coverage</div>
-          <div className="mb-4 space-y-2">
-            {detail.prsAwaiting.length === 0 ? (
-              <p className="text-[13px] text-mute">No PRs waiting on this person.</p>
-            ) : (
-              detail.prsAwaiting.map((pr) => (
-                <div key={pr.key} className="flex items-center gap-3">
-                  <TicketKey>{pr.key}</TicketKey>
+          {!tickets || tickets.length === 0 ? (
+            <p className="text-[13px] text-mute">No open tickets to reassign.</p>
+          ) : (
+            <div className="max-h-[336px] space-y-2 overflow-y-auto pr-1">
+              {tickets.map((t) => (
+                <div key={t.key} className="flex items-center gap-3">
+                  <Chip tone="neutral" className="w-24 shrink-0 justify-center">
+                    {t.key}
+                  </Chip>
                   <Select
-                    value={prReviewer[pr.key] ?? ""}
-                    onValueChange={(v) => setPrReviewer((prev) => ({ ...prev, [pr.key]: v }))}
+                    value={ticketAssignee[t.key] ?? ""}
+                    onValueChange={(v) => setTicketAssignee((prev) => ({ ...prev, [t.key]: v }))}
                   >
                     <SelectTrigger className="h-8 flex-grow text-[13px]">
-                      <SelectValue placeholder="Assign a reviewer" />
+                      <SelectValue placeholder="Select team member" />
                     </SelectTrigger>
                     <SelectContent>
                       {otherMembers.map((m) => (
-                        <SelectItem key={m.id} value={m.name}>
+                        <SelectItem key={m.account_id} value={m.name}>
                           {m.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <span className="shrink-0 text-[11px] text-danger">
-                    ⚠ Blocked {pr.waitingDays} {pr.waitingDays === 1 ? "day" : "days"}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="section-label mb-2">Branch owner</div>
-          <div className="mb-4 space-y-2">
-            {detail.branches.map((b) => (
-              <div key={b.name} className="flex items-center gap-3">
-                <BranchName>{b.name}</BranchName>
-                <Select
-                  value={branchOwner[b.name] ?? ""}
-                  onValueChange={(v) => setBranchOwner((prev) => ({ ...prev, [b.name]: v }))}
-                >
-                  <SelectTrigger className="h-8 flex-grow text-[13px]">
-                    <SelectValue placeholder="Assign owner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {otherMembers.map((m) => (
-                      <SelectItem key={m.id} value={m.name}>
-                        {m.name}
-                      </SelectItem>
+                  <div className="flex shrink-0 gap-1">
+                    {urgencyOptions.map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => setTicketUrgency((prev) => ({ ...prev, [t.key]: u }))}
+                        className={cn(
+                          "rounded-sm border px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150",
+                          ticketUrgency[t.key] === u
+                            ? "border-brand bg-brand-soft text-brand"
+                            : "border-border text-mute hover:text-ink",
+                        )}
+                      >
+                        {u}
+                      </button>
                     ))}
-                  </SelectContent>
-                </Select>
-                <span
-                  className={cn(
-                    "shrink-0 text-[11px]",
-                    b.state === "mid-flight" ? "text-warning" : "text-mute",
-                  )}
-                >
-                  {b.commitsAhead} commits, {b.state}
-                </span>
-              </div>
-            ))}
-          </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </PageSection>
 
-          <div className="section-label mb-2">Handover note to assignees</div>
+      <PageSection>
+        <div className="grid grid-cols-2 items-start gap-4">
+          <Panel
+            title="PR review coverage"
+            icon={<MessageSquareText className="size-3.5 text-mute" />}
+          >
+            <div className="space-y-2">
+              {!detail || detail.prsAwaiting.length === 0 ? (
+                <p className="text-[13px] text-mute">No PRs waiting on this person.</p>
+              ) : (
+                detail.prsAwaiting.map((pr) => (
+                  <div key={pr.key} className="flex items-center gap-3">
+                    <TicketKey>{pr.key}</TicketKey>
+                    <Select
+                      value={prReviewer[pr.key] ?? ""}
+                      onValueChange={(v) => setPrReviewer((prev) => ({ ...prev, [pr.key]: v }))}
+                    >
+                      <SelectTrigger className="h-8 flex-grow text-[13px]">
+                        <SelectValue placeholder="Assign a reviewer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {otherMembers.map((m) => (
+                          <SelectItem key={m.account_id} value={m.name}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="shrink-0 text-[11px] text-danger">
+                      ⚠ Blocked {pr.waitingDays} {pr.waitingDays === 1 ? "day" : "days"}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
+
+          <Panel title="Branch owner" icon={<GitBranch className="size-3.5 text-mute" />}>
+            <div className="space-y-2">
+              {!detail || detail.branches.length === 0 ? (
+                <p className="text-[13px] text-mute">No branches to reassign.</p>
+              ) : (
+                detail.branches.map((b) => (
+                  <div key={b.name} className="flex items-center gap-3">
+                    <BranchName>{b.name}</BranchName>
+                    <Select
+                      value={branchOwner[b.name] ?? ""}
+                      onValueChange={(v) => setBranchOwner((prev) => ({ ...prev, [b.name]: v }))}
+                    >
+                      <SelectTrigger className="h-8 flex-grow text-[13px]">
+                        <SelectValue placeholder="Assign owner" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {otherMembers.map((m) => (
+                          <SelectItem key={m.account_id} value={m.name}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span
+                      className={cn(
+                        "shrink-0 text-[11px]",
+                        b.state === "mid-flight" ? "text-warning" : "text-mute",
+                      )}
+                    >
+                      {b.commitsAhead} commits, {b.state}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </Panel>
+        </div>
+      </PageSection>
+
+      <PageSection>
+        <Panel title="Handover note to assignees">
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -457,8 +625,20 @@ function KnowledgeRisksTab({
   detail,
 }: {
   firstName: string;
-  detail: NonNullable<(typeof handoverDetails)[string]>;
+  detail: MockDetail | undefined;
 }) {
+  if (!detail) {
+    return (
+      <PageSection>
+        <Panel>
+          <p className="text-[13px] text-mute">
+            No knowledge-risk data recorded for this person yet.
+          </p>
+        </Panel>
+      </PageSection>
+    );
+  }
+
   return (
     <>
       <PageSection label={`Knowledge only ${firstName} holds (inferred from commit + PR history)`}>
@@ -506,64 +686,6 @@ function KnowledgeRisksTab({
               </li>
             ))}
           </ol>
-        </div>
-      </PageSection>
-    </>
-  );
-}
-
-const KIT_INCLUDED = [
-  "Open ticket list with status and priority",
-  "Open PRs and who is blocked waiting on them",
-  "Unmerged branches with staleness indicator",
-  "Last 10 commits with messages",
-  "Coverage gaps (where only this person has context)",
-  "Approved scratchpad notes (their own knowledge)",
-  "Handover assignments (manager fills these)",
-  "Manager's handover note",
-];
-
-const KIT_EXCLUDED = [
-  "Performance metrics or velocity (personal data, DPDP)",
-  "Comparison to other team members",
-  "Time estimates or predictions",
-  "Anything from client-confidential sources if this crosses a project boundary",
-];
-
-function HandoverKitTab() {
-  return (
-    <>
-      <PageSection subtitle="The complete package to send when someone transitions off the project.">
-        <div className="grid grid-cols-2 gap-4">
-          <Panel title="What's included" icon={<ClipboardList className="size-3.5 text-mute" />}>
-            <ul className="space-y-2">
-              {KIT_INCLUDED.map((item) => (
-                <li key={item} className="flex items-start gap-2 text-[13px] text-ink">
-                  <span className="mt-0.5 text-success">✓</span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </Panel>
-          <Panel title="What is not included" icon={<Ban className="size-3.5 text-mute" />}>
-            <ul className="space-y-2">
-              {KIT_EXCLUDED.map((item) => (
-                <li key={item} className="flex items-start gap-2 text-[13px] text-mute">
-                  <span className="mt-0.5 text-danger">×</span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        </div>
-      </PageSection>
-
-      <PageSection>
-        <div className="flex flex-wrap gap-2">
-          <GhostButton tone="brand">Preview full kit</GhostButton>
-          <GhostButton>Copy as Markdown</GhostButton>
-          <GhostButton>Send to Slack channel</GhostButton>
-          <GhostButton>Export PDF</GhostButton>
         </div>
       </PageSection>
     </>

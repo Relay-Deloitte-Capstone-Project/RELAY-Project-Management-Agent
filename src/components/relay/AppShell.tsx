@@ -1,13 +1,18 @@
 import { Link } from "@tanstack/react-router";
 import {
+  Archive,
   BarChart3,
   Boxes,
   Database,
+  FolderCog,
+  FolderKanban,
   LayoutGrid,
   Lock,
   MessageSquare,
   Moon,
+  PackageOpen,
   Pencil,
+  Rocket,
   Settings,
   Shield,
   Sun,
@@ -50,22 +55,34 @@ const NAV: Record<Role, NavGroup[]> = {
       items: [
         { to: "/mgr/dashboard", label: "Dashboard", icon: <BarChart3 /> },
         { to: "/mgr/team", label: "Team handover", icon: <Users /> },
+        { to: "/mgr/handover-kit", label: "Handover kit", icon: <PackageOpen /> },
+        { to: "/mgr/onboarding-kit", label: "Onboarding kit", icon: <Rocket /> },
         { to: "/mgr/scope", label: "Scope guardian", icon: <Shield /> },
         { to: "/mgr/epics", label: "Epic progress", icon: <Boxes /> },
       ],
     },
-    {
-      label: "Controls",
-      items: [{ to: "/mgr/admin", label: "Access control", icon: <Lock /> }],
-    },
   ],
   ADMIN: [
     {
+      label: "Projects",
+      items: [
+        { to: "/admin/projects", label: "All projects", icon: <FolderKanban /> },
+        { to: "/admin/projects/new", label: "Project setup", icon: <FolderCog /> },
+      ],
+    },
+    {
+      label: "Users",
+      items: [
+        { to: "/admin/users", label: "All users", icon: <Users /> },
+        { to: "/admin/access", label: "Access control", icon: <Lock /> },
+      ],
+    },
+    {
       label: "System",
       items: [
-        { to: "/admin/dashboard", label: "System health", icon: <BarChart3 /> },
-        { to: "/admin/users", label: "All users", icon: <Users /> },
         { to: "/admin/ingestion", label: "Ingestion logs", icon: <Database /> },
+        { to: "/admin/dashboard", label: "System health", icon: <BarChart3 /> },
+        { to: "/admin/governance", label: "Data governance", icon: <Archive /> },
         { to: "/admin/config", label: "Configuration", icon: <Settings /> },
       ],
     },

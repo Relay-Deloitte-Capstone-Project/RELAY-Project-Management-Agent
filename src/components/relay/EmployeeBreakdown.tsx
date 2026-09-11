@@ -24,7 +24,7 @@ type BreakdownResponse = {
 // sort-by-workload ordering, no "behind schedule" flag on any individual.
 // Those are all explicitly out of scope for this view (see
 // backend/api/analytics.py).
-export function EmployeeBreakdown() {
+export function EmployeeBreakdown({ sprintId }: { sprintId?: number | undefined }) {
   const [data, setData] = useState<BreakdownResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retryTick, setRetryTick] = useState(0);
@@ -34,7 +34,8 @@ export function EmployeeBreakdown() {
     (async () => {
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/api/analytics/employee-breakdown`);
+        const query = sprintId !== undefined ? `?sprint_id=${sprintId}` : "";
+        const res = await fetch(`${API_URL}/api/analytics/employee-breakdown${query}`);
         if (!res.ok) throw new Error(`Request failed (${res.status})`);
         const json: BreakdownResponse = await res.json();
         if (!cancelled) setData(json);
@@ -47,7 +48,7 @@ export function EmployeeBreakdown() {
     return () => {
       cancelled = true;
     };
-  }, [retryTick]);
+  }, [retryTick, sprintId]);
 
   if (error) {
     return (
@@ -75,7 +76,7 @@ export function EmployeeBreakdown() {
   if (!data.sprint || data.breakdown.length === 0) {
     return (
       <Panel title="Team breakdown">
-        <p className="text-[13px] text-mute">No active sprint on the board right now.</p>
+        <p className="text-[13px] text-mute">No sprint data to show.</p>
       </Panel>
     );
   }

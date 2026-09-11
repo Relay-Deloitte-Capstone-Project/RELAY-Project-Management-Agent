@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { GhostButton, PageSection, Panel, StatusDotCard } from "@/components/relay/primitives";
-import { ingestionRuns, systemServices } from "@/lib/mockData";
+import { ingestionRuns } from "@/lib/mockData";
 import {
   Table,
   TableBody,
@@ -31,16 +32,58 @@ export const Route = createFileRoute("/_authenticated/admin/dashboard")({
   component: SystemHealth,
 });
 
+const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
+
+type ServiceStatus = { label: string; value: string; tone: "success" | "warning" | "danger" | "neutral" | "brand" | "violet" };
+type Summary = { total_issues: number; bug_rate: number };
+
 function SystemHealth() {
   const { user } = Route.useRouteContext();
+  const [services, setServices] = useState<ServiceStatus[] | null>(null);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [servicesRes, summaryRes] = await Promise.all([
+          fetch(`${API_URL}/api/project/services`),
+          fetch(`${API_URL}/api/project/summary`),
+        ]);
+        if (!servicesRes.ok || !summaryRes.ok) throw new Error("Request failed");
+        const [servicesJson, summaryJson] = await Promise.all([servicesRes.json(), summaryRes.json()]);
+        if (!cancelled) {
+          setServices(servicesJson);
+          setSummary(summaryJson);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Couldn't load system health.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <AppShell user={user} title="System health">
       <PageSection label="Connections">
-        <div className="grid grid-cols-4 gap-3">
-          {systemServices.map((s) => (
-            <StatusDotCard key={s.label} label={s.label} value={s.value} tone={s.tone} />
-          ))}
-        </div>
+        {error && <p className="text-[13px] text-danger">{error}</p>}
+        {!error && !services && (
+          <div className="flex items-center gap-2 text-[13px] text-mute">
+            <Loader2 className="size-3.5 animate-spin" /> Checking connections…
+          </div>
+        )}
+        {services && (
+          <div className="grid grid-cols-3 gap-3">
+            {services.map((s) => (
+              <StatusDotCard key={s.label} label={s.label} value={s.value} tone={s.tone} />
+            ))}
+          </div>
+        )}
       </PageSection>
 
       <PageSection label="Last ingestion run">
@@ -81,11 +124,16 @@ function SystemHealth() {
         </Panel>
       </PageSection>
 
-      <PageSection label="Coverage">
+      <PageSection label="Quality">
         <Panel>
-          <p className="text-[13px] leading-relaxed text-mute">
-            61.8% ticket-to-commit linkage — 123 of 199 tracked tickets.
-          </p>
+          {summary ? (
+            <p className="text-[13px] leading-relaxed text-mute">
+              <span className="font-semibold text-ink">{summary.bug_rate}% bug rate</span> across the KPD
+              project — {summary.total_issues} tickets tracked in Jira.
+            </p>
+          ) : (
+            <p className="text-[13px] text-mute">Loading…</p>
+          )}
         </Panel>
       </PageSection>
     </AppShell>
