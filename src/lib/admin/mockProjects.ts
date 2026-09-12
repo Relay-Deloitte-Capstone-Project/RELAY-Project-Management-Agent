@@ -4,11 +4,14 @@ export type SetupStepKey = "details" | "jira" | "github" | "sow" | "team";
 
 export type SetupProgress = Record<SetupStepKey, boolean>;
 
+export type ProjectTeamMember = { initials: string; name: string; role: string };
+
 export type MockProject = {
   id: string;
   name: string;
   clientName: string;
   jiraKey: string;
+  jiraBaseUrl: string;
   githubRepo: string;
   status: ProjectStatus;
   memberCount: number;
@@ -18,6 +21,13 @@ export type MockProject = {
   contractEnd: string | null;
   setupProgress: SetupProgress;
   lastActivity: string;
+  capstone?: boolean;
+  ticketCount: number;
+  commitCount: number;
+  coveragePct: number;
+  chunksCount: number;
+  lastSync: string;
+  team: ProjectTeamMember[];
 };
 
 export const SETUP_STEPS: SetupStepKey[] = ["details", "jira", "github", "sow", "team"];
@@ -37,37 +47,64 @@ export const mockProjects: MockProject[] = [
     name: "Apache Kafka",
     clientName: "Apache Software Foundation",
     jiraKey: "KAN",
+    jiraBaseUrl: "issues.apache.org",
     githubRepo: "apache/kafka",
     status: "active",
-    memberCount: 8,
+    memberCount: 6,
     startDate: "2026-01-12",
     retentionDays: 30,
     dpaReference: "DPA-2026-001",
     contractEnd: "2026-09-16",
     setupProgress: { details: true, jira: true, github: true, sow: true, team: true },
     lastActivity: "2h ago",
+    ticketCount: 1247,
+    commitCount: 892,
+    coveragePct: 62,
+    chunksCount: 8420,
+    lastSync: "2 minutes ago",
+    team: [
+      { initials: "AG", name: "Anya Gupta", role: "Manager" },
+      { initials: "AK", name: "Akshar Kher", role: "Developer" },
+      { initials: "RG", name: "Ravi Gupta", role: "Developer" },
+      { initials: "AB", name: "Adveita", role: "Developer" },
+      { initials: "PS", name: "Priya Sharma", role: "Developer" },
+      { initials: "OH", name: "Omar Hassan", role: "Developer" },
+    ],
   },
   {
     id: "relay-internal",
-    name: "Project Relay",
-    clientName: "Internal",
-    jiraKey: "REL",
-    githubRepo: "relay/platform",
+    name: "Relay — Project Memory",
+    clientName: "Deloitte USI Capstone 2026",
+    jiraKey: "KPD",
+    jiraBaseUrl: "relay.atlassian.net",
+    githubRepo: "Anya-Gupta-05/idea-explainer-pro",
     status: "active",
-    memberCount: 5,
-    startDate: "2025-11-03",
+    memberCount: 3,
+    startDate: "2026-09-03",
     retentionDays: null,
     dpaReference: "—",
     contractEnd: null,
     setupProgress: { details: true, jira: true, github: true, sow: true, team: true },
     lastActivity: "13h ago",
+    capstone: true,
+    ticketCount: 24,
+    commitCount: 47,
+    coveragePct: 58,
+    chunksCount: 612,
+    lastSync: "12 minutes ago",
+    team: [
+      { initials: "AG", name: "Anya Gupta", role: "Manager" },
+      { initials: "AK", name: "Akshar Kher", role: "Developer" },
+      { initials: "RG", name: "Ravi Gupta", role: "Developer" },
+    ],
   },
   {
     id: "acme",
     name: "Acme Data Migration",
     clientName: "Acme Corp",
     jiraKey: "ACM",
-    githubRepo: "acme/migration",
+    jiraBaseUrl: "acmecorp.atlassian.net",
+    githubRepo: "acme-corp/data-migration",
     status: "setup",
     memberCount: 1,
     startDate: "2026-09-08",
@@ -76,6 +113,12 @@ export const mockProjects: MockProject[] = [
     contractEnd: "2027-01-15",
     setupProgress: { details: true, jira: true, github: false, sow: false, team: false },
     lastActivity: "37m ago",
+    ticketCount: 0,
+    commitCount: 0,
+    coveragePct: 0,
+    chunksCount: 0,
+    lastSync: "—",
+    team: [{ initials: "AG", name: "Anya Gupta", role: "Manager" }],
   },
 ];
 
