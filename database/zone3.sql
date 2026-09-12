@@ -37,20 +37,44 @@ CREATE INDEX IF NOT EXISTS idx_messages_session
 
 -- Developer scratchpad notes
 CREATE TABLE IF NOT EXISTS zone3.scratchpad_notes (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id       TEXT NOT NULL,
-    engagement_id TEXT NOT NULL,
-    title         TEXT,
-    content       TEXT NOT NULL,
-    status        TEXT DEFAULT 'draft'
-                      CHECK (status IN ('draft', 'approved', 'promoted')),
-    source_pr     TEXT,           -- PR number if auto-drafted, NULL if manual
-    approved_at   TIMESTAMPTZ,    -- when developer clicked Approve
-    created_at    TIMESTAMPTZ DEFAULT NOW()
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         TEXT NOT NULL,
+    engagement_id   TEXT NOT NULL,
+    title           TEXT,
+    content         TEXT NOT NULL,
+    status          TEXT DEFAULT 'draft'
+                        CHECK (status IN ('draft', 'approved', 'promoted')),
+    source_pr       TEXT,           -- PR number if auto-drafted, NULL if manual
+    pr_head_sha     TEXT,           -- last-seen HEAD sha of source_pr, for detecting new code changes
+    current_version INTEGER NOT NULL DEFAULT 1,
+    approved_at     TIMESTAMPTZ,    -- when developer clicked Approve
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_scratchpad_user
     ON zone3.scratchpad_notes (user_id, engagement_id, status);
+
+-- One row per prior version of a note's content, written just before the
+-- note itself is overwritten - either by a manual edit, or because the
+-- linked PR's code changed since the note was last synced (pr_head_sha
+-- moved). change_reason distinguishes the two triggers.
+CREATE TABLE IF NOT EXISTS zone3.scratchpad_note_versions (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    note_id        UUID NOT NULL
+                       REFERENCES zone3.scratchpad_notes(id) ON DELETE CASCADE,
+    version_num    INTEGER NOT NULL,
+    title          TEXT,
+    content        TEXT NOT NULL,
+    change_reason  TEXT NOT NULL
+                       CHECK (change_reason IN ('manual_edit', 'pr_update')),
+    pr_diff_ref    TEXT,           -- PR head sha this version was snapshotted at, if pr_update
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (note_id, version_num)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scratchpad_versions_note
+    ON zone3.scratchpad_note_versions (note_id, version_num DESC);
 
 -- Full-text search on scratchpad (no vectors — tsvector is enough here)
 ALTER TABLE zone3.scratchpad_notes
