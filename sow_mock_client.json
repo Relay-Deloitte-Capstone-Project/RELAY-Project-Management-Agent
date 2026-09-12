@@ -1,0 +1,123 @@
+{
+  "project_key": "KPD",
+  "client": "Arclight Systems, Inc.",
+  "product_name": "Arclight Continuity",
+  "vendor": "Relay Labs",
+  "deliverables": [
+    {
+      "id": "D1",
+      "name": "Data Ingestion Connectors (Jira + GitHub)",
+      "epic_key": "KPD-1",
+      "description": "Ingestion layer that pulls issue and commit history from Arclight's Jira and GitHub organizations into Continuity, including incremental sync, webhook-driven updates, and historical backfill.",
+      "acceptance": "Jira issues and GitHub commits/PRs sync within 5 minutes of a change; full historical backfill completes without manual intervention; webhook delivery survives bursts of 50+ events/minute without dropped updates; attachment metadata ingests without silent failures.",
+      "excludes": [
+        "Connectors for any source control or issue tracker other than Jira and GitHub",
+        "Real-time/streaming ingestion (sub-minute latency)",
+        "Migrating or archiving Arclight's data out of Jira/GitHub"
+      ]
+    },
+    {
+      "id": "D2",
+      "name": "Ticket-to-Commit Linkage & Coverage Reporting",
+      "epic_key": "KPD-2",
+      "description": "Automatic association of GitHub commits/PRs with the Jira tickets they implement, plus a coverage report showing what percentage of tickets have linked code.",
+      "acceptance": "Commit messages referencing a ticket key in any of Arclight's existing formatting conventions are correctly linked; coverage report updates as new commits land; a ticket linking to multiple commits is not double-counted.",
+      "excludes": [
+        "Sprint velocity, burndown, or estimation-accuracy reporting",
+        "Linking tickets across more than one Jira instance",
+        "Automatically closing or transitioning Jira tickets based on commit/PR activity"
+      ]
+    },
+    {
+      "id": "D3",
+      "name": "Hybrid Search & Cited Q&A",
+      "epic_key": "KPD-3",
+      "description": "Retrieval system over Arclight's ingested project data supporting natural-language questions with citations back to the source ticket or commit.",
+      "acceptance": "Queries combine keyword and semantic search; every answer includes at least one clickable citation; retrieval latency under 2s p95 up to 200k indexed chunks; system abstains rather than fabricates when unsupported.",
+      "excludes": [
+        "Multi-language translation of source content or answers",
+        "A conversational voice interface",
+        "Generating or submitting code changes on Arclight's behalf"
+      ]
+    },
+    {
+      "id": "D4",
+      "name": "Handover Brief & Work-State Assembly",
+      "epic_key": "KPD-4",
+      "description": "Automatic assembly of a handover brief for any engineer — open tickets, open PRs, unmerged branches, recent commit activity — without requiring the person to self-report.",
+      "acceptance": "Brief reflects live Jira/GitHub state at generation time; correctly shows PRs awaiting review from other people, not just the subject's own; requires no action from the departing engineer.",
+      "excludes": [
+        "Any performance, velocity, or productivity scoring of individuals",
+        "HR or org-chart data (reporting lines, compensation, review history)",
+        "Automated reassignment of tickets or PRs"
+      ]
+    },
+    {
+      "id": "D5",
+      "name": "Scope Guardian — SOW Parsing & Classification",
+      "epic_key": "KPD-5",
+      "description": "Parses an uploaded Statement of Work into structured deliverables and acceptance criteria, then classifies incoming tickets as in-scope, out-of-scope, or ambiguous against it.",
+      "acceptance": "SOW upload produces an editable deliverable list for PM confirmation; tickets are classified with a stated reason; a written, consistent definition of ambiguous vs. out-of-scope is applied.",
+      "excludes": [
+        "Legal review or redlining of the SOW document itself",
+        "Automatic ticket rejection or closure based on classification",
+        "Classifying scope for engagements without a parseable SOW on file"
+      ]
+    },
+    {
+      "id": "D6",
+      "name": "Provenance & Read-Time Permission Evaluation",
+      "epic_key": "KPD-6",
+      "description": "Tracks the source of every retrieved piece of information and evaluates read access at query time, including immediately after access is revoked.",
+      "acceptance": "Every citation traces back to its exact source record; a user whose access is revoked loses read access on their next query without a cache flush or restart; row-level security enforced on all citation-facing tables.",
+      "excludes": [
+        "Building or replacing Arclight's identity provider / SSO system",
+        "Formal compliance certification (SOC 2, ISO 27001, etc.)",
+        "Write-access permissions or approval workflows"
+      ]
+    },
+    {
+      "id": "D7",
+      "name": "Secrets Scanning & Canary Tokens",
+      "epic_key": "KPD-7",
+      "description": "Scans ingested commit history for leaked credentials before indexing, and embeds canary tokens in seeded/test content to detect unauthorized access or exfiltration.",
+      "acceptance": "Common secret patterns are detected before content reaches the searchable index; canary token triggers reliably fire alerts, including when the alerting webhook is briefly unreachable; false positives on legitimate fixtures are minimized.",
+      "excludes": [
+        "Automatically rotating, revoking, or remediating a discovered secret",
+        "Scanning artifact stores or secrets managers outside ingested Git history",
+        "Guaranteeing detection of novel or custom secret formats"
+      ]
+    },
+    {
+      "id": "D8",
+      "name": "Auto-Draft from PRs — Assisted Capture",
+      "epic_key": "KPD-8",
+      "description": "When a PR is merged, automatically drafts a knowledge-base note summarizing the change and its reasoning, pending human review and approval before publishing.",
+      "acceptance": "A draft is generated per qualifying merged PR without author effort; drafts sit pending until explicitly approved; approved notes are searchable through D3 with correct provenance to the source PR.",
+      "excludes": [
+        "Auto-publishing a draft without human approval",
+        "Drafting for repositories or PRs outside Arclight's connected GitHub organization",
+        "Translating drafts into languages other than English"
+      ]
+    }
+  ],
+  "retention_days": 30,
+  "dpa_reference": "DPA-MOCK-2026-001",
+  "out_of_scope_tickets": [
+    {
+      "key": "KPD-250",
+      "expected_classification": "out_of_scope",
+      "reason": "Violates D7 exclusion: automatically rotating, revoking, or remediating a discovered secret."
+    },
+    {
+      "key": "KPD-251",
+      "expected_classification": "out_of_scope",
+      "reason": "Not part of any contracted deliverable (D1-D8) — billing/subscription management is unrelated to Continuity's scope."
+    },
+    {
+      "key": "KPD-252",
+      "expected_classification": "ambiguous",
+      "reason": "D3 covers a text-based Q&A surface but doesn't specify whether that extends to a new channel integration like Slack — a stretch fit, not clean in-scope or out-of-scope."
+    }
+  ]
+}

@@ -330,6 +330,7 @@ function NewProjectWizard() {
       name: projectName || "Untitled project",
       clientName: clientName || "—",
       jiraKey: "—",
+      jiraBaseUrl: "—",
       githubRepo: "—",
       status: "setup",
       memberCount: 1,
@@ -339,6 +340,12 @@ function NewProjectWizard() {
       contractEnd: endDate || null,
       setupProgress: { details: false, jira: false, github: false, sow: false, team: false },
       lastActivity: "just now",
+      ticketCount: 0,
+      commitCount: 0,
+      coveragePct: 0,
+      chunksCount: 0,
+      lastSync: "—",
+      team: [{ initials: "AG", name: user.name, role: "Manager" }],
       ...patch,
     };
     addMockProject(project);
