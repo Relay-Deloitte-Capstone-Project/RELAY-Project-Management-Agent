@@ -33,6 +33,24 @@ Built out a proper admin section:
 
 ---
 
+## 🗄️ Database — Real Structure Behind Projects & SOWs
+
+The admin panel's project data used to be **entirely fake** — a browser-memory list that reset every time you refreshed the page. Uploading a Statement of Work "worked" but was a hardcoded demo that never touched a database at all. That's all real now:
+
+- **`projects`** — one real row per client engagement (name, client, status, dates), created the moment you finish Step 1 of the setup wizard. This is now the actual source of truth — not something living only in your browser tab.
+- **Jira, GitHub, and retention/DPA settings each got their own table** (`project_jira_links`, `project_github_links`, `project_governance`), linked back to the project, instead of one row with every field crammed on. Editing GitHub later can never accidentally clobber Jira's settings.
+- **`sow_documents`** — one row per uploaded SOW: filename, parse status (uploaded → parsing → parsed/failed), and *where the PDF lives on disk*. We deliberately never store the PDF's bytes or full text in the database — just a pointer to the file, plus a hash to detect duplicates.
+- **`sow_deliverables`** — the structured deliverables a SOW parses into, each one traceable back to the exact page and text snippet it came from. Admins can edit any deliverable after the fact; edits are flagged so we know it's no longer just the AI's guess.
+- **SOW text feeds the same `chunks` table Jira and GitHub already use** — so the moment a SOW is uploaded, "Ask Project" can answer questions from it too, with zero extra wiring.
+- **`ingestion_logs`** is now real — every upload, parse failure, and quota error shows up there instead of the placeholder log page.
+- **New "Deliverables" tab** (Admin + Manager sidebars) shows every deliverable for a project, grouped by which SOW document it came from, reading live from the database — not the old mock list.
+
+Two reliability fixes worth flagging:
+- A failed SOW parse used to leave half-processed data behind (searchable text with no matching deliverables). Failures now clean up completely, so a retry starts from zero instead of piling up.
+- SOW parsing was a hard dependency on Gemini — if its daily quota ran out, uploads just failed. It now automatically falls back to Groq, so one provider being down doesn't block anyone.
+
+---
+
 ## 🤝 Team Handover — Reworked
 
 - The team list now shows **progress, tickets, code activity, and chat usage** per person, not just raw ticket counts.

@@ -15,12 +15,14 @@ ROOT_ENV = Path(__file__).parent.parent / ".env"
 load_dotenv(BACKEND_ENV)
 load_dotenv(ROOT_ENV)
 
+from api.admin_projects import router as admin_projects_router  # noqa: E402
 from api.analytics import router as analytics_router  # noqa: E402
 from api.llm import build_providers  # noqa: E402
 from api.project import router as project_router  # noqa: E402
 from api.query import load_embedding_model, router as query_router  # noqa: E402
 from api.scratchpad import router as scratchpad_router  # noqa: E402
 from api.sessions import router as sessions_router  # noqa: E402
+from api.sow import router as sow_router  # noqa: E402
 
 
 def database_url() -> str:
@@ -60,11 +62,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin_projects_router)
 app.include_router(query_router)
 app.include_router(sessions_router)
 app.include_router(scratchpad_router)
 app.include_router(analytics_router)
 app.include_router(project_router)
+app.include_router(sow_router)
 
 
 @app.get("/health")

@@ -1,6 +1,16 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Check, CircleAlert, Github, Loader2, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  Check,
+  CircleAlert,
+  FileText,
+  Github,
+  Loader2,
+  Plus,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { GhostButton, PageSection, Panel } from "@/components/relay/primitives";
 import { Input } from "@/components/ui/input";
@@ -24,7 +34,7 @@ import {
 } from "@/lib/admin/mockProjects";
 import { allUsers } from "@/lib/mockData";
 
-export const Route = createFileRoute("/_authenticated/admin/projects/new")({
+export const Route = createFileRoute("/_authenticated/admin/projects_/new")({
   validateSearch: (search: Record<string, unknown>): { project?: string } => {
     const project = search["project"];
     return typeof project === "string" ? { project } : {};
@@ -43,9 +53,40 @@ export const Route = createFileRoute("/_authenticated/admin/projects/new")({
   component: NewProjectWizard,
 });
 
+// The FastAPI backend (backend/main.py) — same pattern as every other route
+// that calls it (e.g. _authenticated.dev.ask.tsx).
+const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
+
 const STEPS = ["Project details", "Jira", "GitHub", "SOW", "Team"] as const;
 
-type Deliverable = { id: string; name: string; criteria: string };
+type Deliverable = {
+  id: string;
+  name: string;
+  criteria: string;
+  sourcePage: number | null;
+  isBackend: boolean;
+  // Which uploaded SOW this came from — lets the UI group "which
+  // deliverables were from what" instead of one flat undifferentiated list
+  // once more than one document has been uploaded.
+  sourceDocId: string;
+  sourceFileName: string;
+};
+
+type SowDocument = {
+  id: string;
+  file_name: string;
+  page_count: number | null;
+  scope_exclusions: string | null;
+  status: "uploaded" | "parsing" | "parsed" | "failed";
+  parse_error: string | null;
+  uploaded_at?: string;
+  deliverables?: {
+    id: string;
+    name: string;
+    acceptance_criteria: string | null;
+    source_page: number | null;
+  }[];
+};
 type TeamRole = "Developer" | "Manager" | "Observer";
 type AddedMember = { name: string; email: string; role: TeamRole };
 type ConnState = "idle" | "testing" | "success" | "error";
@@ -130,6 +171,10 @@ function NewProjectWizard() {
     resuming ? firstIncompleteStep(resuming.setupProgress) : 0,
   );
   const [projectId, setProjectId] = useState<string | null>(resuming?.id ?? null);
+  // Real public.projects.engagement_id — created on Step 1 (see
+  // ensureBackendProject) so every step after that, including the SOW
+  // upload, attaches to a real backend project instead of a mock-only one.
+  const [engagementId, setEngagementId] = useState<string | null>(resuming?.engagementId ?? null);
 
   // Step 1
   const [projectName, setProjectName] = useState(resuming?.name ?? "");
@@ -171,26 +216,18 @@ function NewProjectWizard() {
     resuming?.setupProgress.github ? { repoName: resuming.githubRepo, commitCount: 356 } : null,
   );
 
-  // Step 4
-  const [sowText, setSowText] = useState("");
+  // Step 4 — real upload against POST /api/admin/sow/upload (backend/api/sow.py).
+  // Multiple SOWs can be uploaded for one project — sowDocs tracks every
+  // document uploaded so far (this session or a prior one), and each
+  // Deliverable below carries sourceDocId/sourceFileName so the UI can
+  // group them by document instead of merging into one undifferentiated list.
+  const [sowFile, setSowFile] = useState<File | null>(null);
+  const [sowDocs, setSowDocs] = useState<SowDocument[]>([]);
   const [sowParsed, setSowParsed] = useState(Boolean(resuming?.setupProgress.sow));
   const [parsing, setParsing] = useState(false);
-  const [deliverables, setDeliverables] = useState<Deliverable[]>(
-    resuming?.setupProgress.sow
-      ? [
-          {
-            id: "d1",
-            name: "Legacy schema migration",
-            criteria: "Zero-downtime cutover, verified row counts",
-          },
-          {
-            id: "d2",
-            name: "Data validation pipeline",
-            criteria: "Automated reconciliation report per batch",
-          },
-        ]
-      : [],
-  );
+  const [sowUploadError, setSowUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [scopeExclusions, setScopeExclusions] = useState("");
   const [retentionDays, setRetentionDays] = useState(String(resuming?.retentionDays ?? 30));
   const [dpaReference, setDpaReference] = useState(resuming?.dpaReference ?? "");
@@ -207,6 +244,45 @@ function NewProjectWizard() {
     if (resuming) setStep(firstIncompleteStep(resuming.setupProgress));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeId]);
+
+  // Resuming a project that already has SOWs uploaded (from an earlier
+  // session) shouldn't show an empty Step 4 — load what's already there.
+  useEffect(() => {
+    if (!engagementId) return;
+    let cancelled = false;
+    fetch(`${API_URL}/api/admin/sow?engagement_id=${engagementId}&include_deliverables=true`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((docs: SowDocument[]) => {
+        if (cancelled || docs.length === 0) return;
+        setSowDocs(docs);
+        setDeliverables(
+          docs.flatMap((doc) =>
+            (doc.deliverables ?? []).map((d) => ({
+              id: d.id,
+              name: d.name,
+              criteria: d.acceptance_criteria ?? "",
+              sourcePage: d.source_page,
+              isBackend: true,
+              sourceDocId: doc.id,
+              sourceFileName: doc.file_name,
+            })),
+          ),
+        );
+        setScopeExclusions(
+          docs
+            .filter((d) => d.scope_exclusions)
+            .map((d) => `From ${d.file_name}: ${d.scope_exclusions}`)
+            .join("\n\n"),
+        );
+        if (docs.some((d) => d.status === "parsed")) setSowParsed(true);
+      })
+      .catch(() => {
+        // Best-effort — the wizard still works for a fresh upload either way.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [engagementId]);
 
   const candidateUsers = useMemo(
     () =>
@@ -251,54 +327,125 @@ function NewProjectWizard() {
     }, 900);
   }
 
-  function parseSow() {
+  // Real pipeline: upload -> backend saves the PDF, extracts text, chunks +
+  // embeds it into public.chunks, and asks Gemini for structured
+  // deliverables — see backend/api/sow.py. This one request does the whole
+  // thing synchronously, so "parsing" stays true until it resolves.
+  //
+  // Multiple documents can be uploaded one after another: each successful
+  // parse is APPENDED to sowDocs/deliverables rather than replacing the
+  // previous document's results, so uploading a second SOW doesn't erase
+  // the first one's deliverables.
+  async function uploadSow() {
+    if (!sowFile) return;
     setParsing(true);
-    window.setTimeout(() => {
-      setDeliverables([
-        {
-          id: "d1",
-          name: "KRaft consensus migration",
-          criteria: "Zookeeper fully decommissioned in staging + prod",
-        },
-        {
-          id: "d2",
-          name: "Consumer group protocol v2",
-          criteria: "Backward-compatible rollout, no rebalance regressions",
-        },
-        {
-          id: "d3",
-          name: "Observability and metrics",
-          criteria: "P99 dashboards for partition health, alerting wired",
-        },
-        {
-          id: "d4",
-          name: "Tiered storage retention",
-          criteria: "Cold-tier offload verified against retention policy",
-        },
-        {
-          id: "d5",
-          name: "SASL auth hardening",
-          criteria: "Token rotation with zero-downtime grace window",
-        },
-        {
-          id: "d6",
-          name: "Rack-aware partition assignor",
-          criteria: "Assignor passes uneven-rack simulation suite",
-        },
+    setSowUploadError(null);
+    try {
+      const id = engagementId ?? (await ensureBackendProject());
+      if (!id) {
+        throw new Error(
+          "Couldn't reach the backend to create the project — check it's running before uploading",
+        );
+      }
+      const form = new FormData();
+      form.append("file", sowFile);
+      form.append("engagement_id", id);
+      form.append("uploaded_by", user.email || user.name);
+
+      const res = await fetch(`${API_URL}/api/admin/sow/upload`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Upload failed (${res.status})`);
+      }
+      const doc: SowDocument = await res.json();
+
+      if (doc.status === "failed") {
+        setSowDocs((prev) => [...prev, doc]);
+        setSowUploadError(doc.parse_error || "Parsing failed for an unknown reason");
+        return;
+      }
+
+      // Upload response doesn't include deliverables — fetch the full
+      // document now that parsing has finished.
+      const detailRes = await fetch(`${API_URL}/api/admin/sow/${doc.id}`);
+      if (!detailRes.ok) throw new Error("Uploaded, but couldn't load parsed deliverables");
+      const detail: SowDocument = await detailRes.json();
+
+      setSowDocs((prev) => [...prev, detail]);
+      setDeliverables((prev) => [
+        ...prev,
+        ...(detail.deliverables ?? []).map((d) => ({
+          id: d.id,
+          name: d.name,
+          criteria: d.acceptance_criteria ?? "",
+          sourcePage: d.source_page,
+          isBackend: true,
+          sourceDocId: doc.id,
+          sourceFileName: doc.file_name,
+        })),
       ]);
+      if (detail.scope_exclusions) {
+        setScopeExclusions((prev) =>
+          prev
+            ? `${prev}\n\nFrom ${doc.file_name}: ${detail.scope_exclusions}`
+            : `From ${doc.file_name}: ${detail.scope_exclusions}`,
+        );
+      }
       setSowParsed(true);
+      setSowFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err) {
+      setSowUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
       setParsing(false);
-    }, 1100);
+    }
+  }
+
+  // Clears a failed upload (e.g. after a transient error like a Gemini
+  // quota limit) so it doesn't clutter the list before retrying.
+  async function removeSowDocument(docId: string) {
+    setSowDocs((prev) => prev.filter((d) => d.id !== docId));
+    setDeliverables((prev) => prev.filter((d) => d.sourceDocId !== docId));
+    try {
+      await fetch(`${API_URL}/api/admin/sow/${docId}`, { method: "DELETE" });
+    } catch {
+      // Best-effort — it's already gone from the wizard's view either way.
+    }
   }
 
   function updateDeliverable(id: string, field: "name" | "criteria", value: string) {
     setDeliverables((prev) => prev.map((d) => (d.id === id ? { ...d, [field]: value } : d)));
   }
 
+  // Backend-sourced rows persist edits on blur (PATCH); ad-hoc rows added
+  // via "Add deliverable row" have no backend counterpart yet and stay
+  // local-only, same as the rest of this still-mock wizard.
+  function persistDeliverableEdit(d: Deliverable) {
+    if (!d.isBackend) return;
+    fetch(`${API_URL}/api/admin/sow/deliverables/${d.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: d.name, acceptance_criteria: d.criteria }),
+    }).catch(() => {
+      // Best-effort — the field keeps its edited value locally either way.
+    });
+  }
+
   function addDeliverableRow() {
     setDeliverables((prev) => [
       ...prev,
-      { id: `d${prev.length + 1}-${Date.now()}`, name: "", criteria: "" },
+      {
+        id: `local-${Date.now()}`,
+        name: "",
+        criteria: "",
+        sourcePage: null,
+        isBackend: false,
+        sourceDocId: "manual",
+        sourceFileName: "Added manually",
+      },
     ]);
   }
 
@@ -368,29 +515,95 @@ function NewProjectWizard() {
     persistStep({ ...patch, setupProgress: { ...progress, [key]: true } });
   }
 
-  function nextFromStep1() {
+  // Creates the real public.projects row the first time it's needed (Step 1,
+  // normally) and reuses it after. Best-effort: if the backend is
+  // unreachable this returns null and the wizard still progresses through
+  // its local mock state — only the SOW upload step hard-requires a real id.
+  async function ensureBackendProject(): Promise<string | null> {
+    if (engagementId) return engagementId;
+    try {
+      const res = await fetch(`${API_URL}/api/admin/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: projectName || "Untitled project",
+          client_name: clientName || "—",
+          start_date: startDate || null,
+          end_date: endDate || null,
+          created_by: user.email || user.name,
+        }),
+      });
+      if (!res.ok) return null;
+      const proj: { engagement_id: string } = await res.json();
+      setEngagementId(proj.engagement_id);
+      return proj.engagement_id;
+    } catch {
+      return null;
+    }
+  }
+
+  // Each wizard step writes to its own linked table (project_jira_links,
+  // project_github_links, project_governance — database/project_setup.sql)
+  // rather than one flat PATCH on public.projects, so e.g. re-testing a
+  // Jira connection later doesn't touch GitHub/governance rows at all.
+  async function putBackendLink(path: string, body: Record<string, unknown>) {
+    const id = engagementId ?? (await ensureBackendProject());
+    if (!id) return;
+    try {
+      await fetch(`${API_URL}/api/admin/projects/${id}/${path}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      // Best-effort — the wizard's own progress tracking doesn't depend on this.
+    }
+  }
+
+  async function patchBackendProject(patch: Record<string, unknown>) {
+    const id = engagementId ?? (await ensureBackendProject());
+    if (!id) return;
+    try {
+      await fetch(`${API_URL}/api/admin/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } catch {
+      // Best-effort — the wizard's own progress tracking doesn't depend on this.
+    }
+  }
+
+  async function nextFromStep1() {
+    const id = await ensureBackendProject();
     markStepDone("details", {
       name: projectName,
       clientName,
       startDate: startDate || new Date().toISOString().slice(0, 10),
       contractEnd: endDate || null,
+      ...(id ? { engagementId: id } : {}),
     });
     setStep(1);
   }
 
   function nextFromStep2() {
+    putBackendLink("jira", { base_url: jiraBaseUrl, project_key: jiraProjectKey.toUpperCase() });
     markStepDone("jira", { jiraKey: jiraProjectKey.toUpperCase() });
     setStep(2);
   }
 
   function nextFromStep3() {
-    markStepDone("github", {
-      githubRepo: ghResult?.repoName ?? repoUrl.replace(/^https?:\/\/github\.com\//, ""),
-    });
+    const repoName = ghResult?.repoName ?? repoUrl.replace(/^https?:\/\/github\.com\//, "");
+    putBackendLink("github", { repo_url: repoUrl, branch });
+    markStepDone("github", { githubRepo: repoName });
     setStep(3);
   }
 
   function nextFromStep4() {
+    putBackendLink("governance", {
+      retention_days: Number(retentionDays) || null,
+      dpa_reference: dpaReference || null,
+    });
     markStepDone("sow", {
       retentionDays: Number(retentionDays) || null,
       dpaReference: dpaReference || "—",
@@ -399,6 +612,7 @@ function NewProjectWizard() {
   }
 
   function finishSetup() {
+    patchBackendProject({ status: "active" });
     markStepDone("team", { status: "active", memberCount: addedMembers.length });
     setFinished(true);
   }
@@ -638,66 +852,174 @@ function NewProjectWizard() {
 
           {step === 3 && (
             <div className="flex flex-col gap-4">
-              {!sowParsed ? (
-                <>
-                  <Field label="Statement of work">
-                    <Textarea
-                      value={sowText}
-                      onChange={(e) => setSowText(e.target.value)}
-                      placeholder="Paste the SOW text here, or attach a PDF (demo: parsing uses sample deliverables)…"
-                      rows={8}
-                    />
-                  </Field>
-                  <div className="flex items-center gap-3">
-                    <GhostButton tone="brand" onClick={parseSow} disabled={parsing}>
-                      {parsing ? <Loader2 className="animate-spin" /> : null}
-                      Parse SOW
-                    </GhostButton>
-                    <button
-                      type="button"
-                      className="text-[13px] font-medium text-mute underline-offset-2 hover:text-ink hover:underline"
-                      onClick={nextFromStep4}
+              {sowDocs.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <span className="section-label">Uploaded documents</span>
+                  {sowDocs.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center gap-2 rounded-lg border border-border px-3 py-2"
                     >
-                      Skip for now
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-[13px] font-medium text-ink">
-                    Found {deliverables.length} deliverables — confirm below before continuing
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {deliverables.map((d, i) => (
-                      <div key={d.id} className="flex items-center gap-2">
-                        <span className="w-7 shrink-0 text-[12px] font-semibold text-mute">
-                          D{i + 1}
+                      <FileText className="size-3.5 shrink-0 text-mute" />
+                      <span className="flex-grow truncate text-[13px] text-ink">
+                        {doc.file_name}
+                      </span>
+                      {doc.status === "parsed" && (
+                        <span className="flex items-center gap-1 text-[11px] font-medium text-success">
+                          <Check className="size-3 shrink-0" />
+                          {doc.deliverables?.length ?? 0} deliverables
                         </span>
-                        <Input
-                          value={d.name}
-                          onChange={(e) => updateDeliverable(d.id, "name", e.target.value)}
-                          placeholder="Deliverable name"
-                          className="flex-grow"
-                        />
-                        <Input
-                          value={d.criteria}
-                          onChange={(e) => updateDeliverable(d.id, "criteria", e.target.value)}
-                          placeholder="Acceptance criteria"
-                          className="flex-grow"
-                        />
+                      )}
+                      {doc.status === "failed" && (
+                        <span
+                          className="flex items-center gap-1 text-[11px] font-medium text-danger"
+                          title={doc.parse_error ?? undefined}
+                        >
+                          <X className="size-3 shrink-0" /> Parse failed
+                        </span>
+                      )}
+                      {doc.status === "failed" && (
                         <button
                           type="button"
-                          onClick={() => removeDeliverable(d.id)}
+                          onClick={() => removeSowDocument(doc.id)}
                           className="shrink-0 text-mute hover:text-danger"
+                          title="Remove and retry"
                         >
                           <Trash2 className="size-3.5" />
                         </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Field
+                label={sowDocs.length > 0 ? "Upload another SOW (PDF)" : "Statement of work (PDF)"}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    setSowFile(e.target.files?.[0] ?? null);
+                    setSowUploadError(null);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-6 text-[13px] text-mute hover:border-brand hover:text-ink"
+                >
+                  {sowFile ? (
+                    <>
+                      <FileText className="size-4 shrink-0" />
+                      <span className="truncate font-medium text-ink">{sowFile.name}</span>
+                      <span className="shrink-0 text-mute">
+                        ({(sowFile.size / 1024).toFixed(0)} KB)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="size-4 shrink-0" />
+                      Click to choose a PDF
+                    </>
+                  )}
+                </button>
+              </Field>
+              {sowUploadError && (
+                <span className="flex items-center gap-1.5 text-[13px] font-medium text-danger">
+                  <X className="size-3.5" /> {sowUploadError}
+                </span>
+              )}
+              <div className="flex items-center gap-3">
+                <GhostButton tone="brand" onClick={uploadSow} disabled={!sowFile || parsing}>
+                  {parsing ? <Loader2 className="animate-spin" /> : null}
+                  {parsing
+                    ? "Uploading & parsing…"
+                    : sowDocs.length > 0
+                      ? "Upload & parse another"
+                      : "Upload & parse SOW"}
+                </GhostButton>
+                {sowDocs.length === 0 && (
+                  <button
+                    type="button"
+                    className="text-[13px] font-medium text-mute underline-offset-2 hover:text-ink hover:underline"
+                    onClick={nextFromStep4}
+                  >
+                    Skip for now
+                  </button>
+                )}
+              </div>
+
+              {deliverables.length > 0 && (
+                <>
+                  <p className="text-[13px] font-medium text-ink">
+                    {deliverables.length} deliverable{deliverables.length === 1 ? "" : "s"} across{" "}
+                    {sowDocs.length} document{sowDocs.length === 1 ? "" : "s"} — confirm below
+                    before continuing
+                  </p>
+                  {(() => {
+                    const groups = new Map<string, { fileName: string; items: Deliverable[] }>();
+                    for (const d of deliverables) {
+                      if (!groups.has(d.sourceDocId)) {
+                        groups.set(d.sourceDocId, { fileName: d.sourceFileName, items: [] });
+                      }
+                      groups.get(d.sourceDocId)!.items.push(d);
+                    }
+                    return Array.from(groups.entries()).map(([docId, group]) => (
+                      <div key={docId} className="flex flex-col gap-2">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-mute uppercase">
+                          <FileText className="size-3 shrink-0" />
+                          From: {group.fileName}
+                        </div>
+                        {group.items.map((d) => {
+                          const i = deliverables.indexOf(d);
+                          return (
+                            <div key={d.id} className="flex items-center gap-2 pl-1">
+                              <span className="w-7 shrink-0 text-[12px] font-semibold text-mute">
+                                D{i + 1}
+                              </span>
+                              <Input
+                                value={d.name}
+                                onChange={(e) => updateDeliverable(d.id, "name", e.target.value)}
+                                onBlur={() => persistDeliverableEdit(d)}
+                                placeholder="Deliverable name"
+                                className="flex-grow"
+                              />
+                              <Input
+                                value={d.criteria}
+                                onChange={(e) =>
+                                  updateDeliverable(d.id, "criteria", e.target.value)
+                                }
+                                onBlur={() => persistDeliverableEdit(d)}
+                                placeholder="Acceptance criteria"
+                                className="flex-grow"
+                              />
+                              {d.sourcePage != null && (
+                                <span
+                                  className="shrink-0 text-[11px] text-mute"
+                                  title="Source page in the SOW"
+                                >
+                                  p.{d.sourcePage}
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => removeDeliverable(d.id)}
+                                className="shrink-0 text-mute hover:text-danger"
+                              >
+                                <Trash2 className="size-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                    <GhostButton onClick={addDeliverableRow} className="w-fit">
-                      <Plus /> Add deliverable row
-                    </GhostButton>
-                  </div>
+                    ));
+                  })()}
+                  <GhostButton onClick={addDeliverableRow} className="w-fit">
+                    <Plus /> Add deliverable row
+                  </GhostButton>
 
                   <Field label="Scope exclusions">
                     <Textarea

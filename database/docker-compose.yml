@@ -14,6 +14,8 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
       - ./zone3.sql:/docker-entrypoint-initdb.d/zone3.sql
+      - ./sow.sql:/docker-entrypoint-initdb.d/sow.sql
+      - ./project_setup.sql:/docker-entrypoint-initdb.d/project_setup.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pm_user -d relay_db"]
       interval: 5s
