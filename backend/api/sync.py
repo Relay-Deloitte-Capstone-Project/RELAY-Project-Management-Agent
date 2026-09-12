@@ -62,12 +62,13 @@ CHUNK_INSERT_SQL = """
 """
 
 CHUNK_UPDATE_SQL = """
-    UPDATE public.chunks SET content = $2, metadata = $3::jsonb, embedding = $4::vector
+    UPDATE public.chunks SET content = $2, metadata = $3::jsonb, embedding = $4::vector,
+           updated_at = NOW()
     WHERE id = $1
 """
 
 CHUNK_META_SQL = """
-    UPDATE public.chunks SET metadata = $2::jsonb WHERE id = $1
+    UPDATE public.chunks SET metadata = $2::jsonb, updated_at = NOW() WHERE id = $1
 """
 
 
@@ -413,9 +414,13 @@ async def sync_status(request: Request):
 async def sync_now(request: Request, full: bool = False):
     """Kick off a sync pass in the background; returns immediately. ?full=true
     ignores cursors and re-pulls everything (first boot, recovery)."""
-    asyncio.create_task(
-        sync_all(request.app.state.pool, request.app.state.embedding_model, full=full)
-    )
+
+    async def _run():
+        from api.query import ready_model
+
+        await sync_all(request.app.state.pool, await ready_model(request), full=full)
+
+    asyncio.create_task(_run())
     return {"started": True, "full": full}
 
 
@@ -423,8 +428,10 @@ async def sync_now(request: Request, full: bool = False):
 async def sync_one_ticket(ticket_key: str, request: Request):
     """Immediate resync of one Jira issue — the UI's assignee/status change
     action calls this so the edit is searchable without waiting for the poll."""
+    from api.query import ready_model
+
     ok = await sync_ticket(
-        request.app.state.pool, request.app.state.embedding_model, ticket_key.upper()
+        request.app.state.pool, await ready_model(request), ticket_key.upper()
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Ticket not found in Jira")

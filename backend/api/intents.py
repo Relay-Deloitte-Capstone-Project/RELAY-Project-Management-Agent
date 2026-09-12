@@ -59,7 +59,8 @@ TICKET_KEY_RE = re.compile(r"\b([A-Z]+-\d+)\b")
 # the ticket itself, not about code (code intent is checked first and wins).
 TICKET_ASK_RE = re.compile(
     r"\b(describe|description|about|what is|what's|whats|status of|brief"
-    r"|explain|tell me about|details? (of|about|on|for)|summari[sz]e|summary)\b",
+    r"|explain|tell me about|details? (of|about|on|for)|summari[sz]e|summary"
+    r"|solutions?|solve|how to (fix|solve|resolve)|fix|resolve|workaround)\b",
     re.IGNORECASE,
 )
 
@@ -69,6 +70,29 @@ PERSON_RE = re.compile(
     r"\b(?:for|assigned to|assignee[ds]? (?:is |to )?|raised (?:for|by|to)"
     r"|by|of)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b"
 )
+
+# "tickets for me", "my bugs", "what am I working on" — first person resolves
+# to the logged-in user's display name (passed in from the session token).
+FIRST_PERSON_RE = re.compile(r"\b(me|my|mine|myself|i'm|i am)\b", re.IGNORECASE)
+
+# "in progress tickets", "open bugs", "done work" — narrows the digest to one
+# Jira status. Values are normalized to the board's actual status names.
+STATUS_RE = re.compile(
+    r"\b(in progress|in review|to[\s-]?do|done|complete[d]?|open|blocked)\b",
+    re.IGNORECASE,
+)
+STATUS_MAP = {
+    "in progress": "In Progress",
+    "in review": "In Review",
+    "to do": "To Do",
+    "todo": "To Do",
+    "to-do": "To Do",
+    "done": "Done",
+    "complete": "Done",
+    "completed": "Done",
+    "open": "To Do",
+    "blocked": "Blocked",
+}
 
 # --- SQL --------------------------------------------------------------------
 
@@ -98,23 +122,26 @@ RECENT_COMMITS_SQL = """
     LIMIT $2
 """
 
-RECENT_BUGS_BY_ASSIGNEE_SQL = """
+# $3 (person) and $4 (status) are nullable — a NULL disables that filter, so
+# one query covers plain / person-scoped / status-scoped / both.
+RECENT_TICKETS_SQL = """
     SELECT id, source_doc_id, source_type, content, metadata
     FROM public.chunks
     WHERE engagement_id = $1
       AND source_type = 'jira_ticket'
-      AND metadata->>'issue_type' ILIKE 'bug'
-      AND metadata->>'assignee' ILIKE '%' || $3 || '%'
+      AND ($5::boolean OR metadata->>'issue_type' ILIKE 'bug')
+      AND ($3::text IS NULL OR metadata->>'assignee' ILIKE '%' || $3 || '%')
+      AND ($4::text IS NULL OR metadata->>'status' ILIKE '%' || $4 || '%')
     ORDER BY metadata->>'created_at' DESC
     LIMIT $2
 """
 
-RECENT_COMMITS_BY_AUTHOR_SQL = """
+RECENT_COMMITS_SCOPED_SQL = """
     SELECT id, source_doc_id, source_type, content, metadata
     FROM public.chunks
     WHERE engagement_id = $1
       AND source_type = 'github_commit'
-      AND metadata->>'author' ILIKE '%' || $3 || '%'
+      AND ($3::text IS NULL OR metadata->>'author' ILIKE '%' || $3 || '%')
     ORDER BY metadata->>'date' DESC
     LIMIT $2
 """
@@ -267,6 +294,9 @@ what it is about, its current status and assignee, and why it matters. Cite
 the ticket inline as [{ticket_key}]. Use ONLY the record below — if it doesn't
 answer part of the question, say so plainly instead of guessing. Plain text
 only, no markdown headers or bold.
+If the question asks you to propose a solution, fix, or implementation, do not
+design one — you report what the project's records say, you do not invent
+fixes. Decline that part in one sentence, then still describe the record.
 
 TICKET RECORD:
 {context}
@@ -321,8 +351,13 @@ def source_dict(r: dict, snippet_chars: int) -> dict:
     }
 
 
-def classify(question: str) -> tuple[str, object] | None:
-    """Return (intent_name, match_payload) or None for default RAG."""
+def classify(question: str, user_name: str | None = None) -> tuple[str, object] | None:
+    """Return (intent_name, match_payload) or None for default RAG.
+
+    The recent intent's payload is (person, status): person comes from a name
+    in the question or, for first-person phrasing ("my tickets"), from the
+    logged-in user's display name; status from words like "in progress".
+    """
     m = SPRINT_RE.search(question)
     if m:
         return ("sprint", int(m.group(1)))
@@ -341,7 +376,12 @@ def classify(question: str) -> tuple[str, object] | None:
         return ("ticket", ticket.group(1))
     if RECENT_LIST_RE.search(question) and RECENT_TOPIC_RE.search(question):
         person = PERSON_RE.search(question)
-        return ("recent", person.group(1) if person else None)
+        person_name = person.group(1) if person else None
+        if person_name is None and user_name and FIRST_PERSON_RE.search(question):
+            person_name = user_name
+        status_m = STATUS_RE.search(question)
+        status = STATUS_MAP.get(status_m.group(1).lower()) if status_m else None
+        return ("recent", (person_name, status))
     return None
 
 
@@ -422,39 +462,48 @@ async def handle_sprint(pool, question, engagement_id, sprint_num, llm_providers
     }
 
 
-async def handle_recent(pool, question, engagement_id, person, llm_providers, ctx):
+async def handle_recent(pool, question, engagement_id, payload, llm_providers, ctx):
+    person, status = payload
+    # "bugs"/"fixes" restrict to bug-type tickets; a plain "tickets"/"issues"
+    # question (or a status filter like "in progress") means any issue type.
+    bugs_only = bool(re.search(r"\b(bugs?|fixes)\b", question, re.I))
     wants_tickets = re.search(r"\b(bugs?|tickets?|issues?|fixes)\b", question, re.I)
     wants_commits = re.search(r"\b(commits?|code changes?|changes?)\b", question, re.I)
+    if status:
+        wants_tickets = True
+        if not re.search(r"\b(commits?|code changes?)\b", question, re.I):
+            wants_commits = False
     if not wants_tickets and not wants_commits:
         wants_tickets = wants_commits = True
 
     results = []
     if wants_tickets:
-        if person:
-            results += [dict(r) for r in await pool.fetch(RECENT_BUGS_BY_ASSIGNEE_SQL, engagement_id, 8, person)]
-        else:
-            results += [dict(r) for r in await pool.fetch(RECENT_BUGS_SQL, engagement_id, 8)]
+        results += [
+            dict(r)
+            for r in await pool.fetch(
+                RECENT_TICKETS_SQL, engagement_id, 8, person, status, not bugs_only
+            )
+        ]
     if wants_commits:
-        if person:
-            results += [dict(r) for r in await pool.fetch(RECENT_COMMITS_BY_AUTHOR_SQL, engagement_id, 8, person)]
-        else:
-            results += [dict(r) for r in await pool.fetch(RECENT_COMMITS_SQL, engagement_id, 8)]
+        results += [
+            dict(r)
+            for r in await pool.fetch(RECENT_COMMITS_SCOPED_SQL, engagement_id, 8, person)
+        ]
 
     if not results:
-        if person:
-            return {
-                "answer": "I don't have any recent records of that kind for "
-                "{} in this project's data. If the name is right, they may "
-                "simply have none recorded yet.".format(person),
-                "sources": [],
-                "abstained": False,
-                "provider": None,
-            }
+        scope = ""
+        if person and status:
+            scope = " for {} with status {}".format(person, status)
+        elif person:
+            scope = " for {}".format(person)
+        elif status:
+            scope = " with status {}".format(status)
         return {
-            "answer": "I don't have any recent records of that kind in this "
-            "project's data.",
+            "answer": "I don't have any recent records of that kind{} in this "
+            "project's data. If that's unexpected, the name or status wording "
+            "may not match the board exactly.".format(scope),
             "sources": [],
-            "abstained": True,
+            "abstained": not person,
             "provider": None,
         }
 
@@ -463,13 +512,19 @@ async def handle_recent(pool, question, engagement_id, person, llm_providers, ct
         "467d828",
     )
     context = build_context(results, ctx["CONTEXT_CHARS"])
+    scope_bits = []
     if person:
+        scope_bits.append("assignee/author matching '{}'".format(person))
+    if status:
+        scope_bits.append("status '{}'".format(status))
+    if scope_bits:
         # Tell the model the records are already scoped — otherwise it can
         # still frame unfiltered context as belonging to the named person.
         context = (
-            "Scope: every record below is already filtered to assignee/author "
-            "matching '{}'. Do not attribute anything beyond these records to "
-            "them.\n\n".format(person)
+            "Scope: every record below is already filtered to {}. Do not "
+            "attribute anything beyond these records.\n\n".format(
+                " and ".join(scope_bits)
+            )
         ) + context
     prompt = RECENT_PROMPT.format(
         question=question,
@@ -674,9 +729,10 @@ async def maybe_handle(
     engagement_id: str,
     llm_providers: list,
     ctx: dict,
+    user_name: str | None = None,
 ) -> dict | None:
     """Try the structured intents; None means 'use default RAG'."""
-    found = classify(question)
+    found = classify(question, user_name)
     if found is None:
         return None
     name, payload = found

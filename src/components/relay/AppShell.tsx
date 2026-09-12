@@ -216,6 +216,14 @@ export function AppShell({
   const { dark, toggle } = useDarkMode();
   const period = useTimePeriod();
 
+  // Fire-and-forget wake-up ping: users with a saved session skip the login
+  // page (which has its own ping), so authenticated pages poke the backend
+  // too. Cheap — /health answers in ms once the service is warm.
+  useEffect(() => {
+    const api = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
+    fetch(`${api}/health`).catch(() => {});
+  }, []);
+
   return (
     <div className="flex h-screen min-w-[1024px] overflow-hidden bg-background">
       <Sidebar role={user.role} />
