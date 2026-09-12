@@ -90,6 +90,13 @@ Prerequisite: step 1 approved.
    | `GROQ_API_KEY` | your key from <https://console.groq.com/keys> (free) |
    | `GOOGLE_GEMINI_API` | your key from <https://aistudio.google.com/apikey> (recommended fallback) |
    | `CORS_ORIGINS` | `http://localhost:3000` for now — replaced with the Vercel URL in step 5 |
+   | `JIRA_SITE` | e.g. `yourteam.atlassian.net` — needed by the burndown/team-breakdown charts |
+   | `JIRA_EMAIL` | Jira account email |
+   | `JIRA_API_TOKEN` | id.atlassian.com → Security → API tokens |
+   | `JIRA_BOARD_ID` | optional; defaults to `34` |
+
+   Without the `JIRA_*` vars the analytics endpoints return 503 by design and
+   the sprint charts show "Request failed (503)".
 
    `LLM_PROVIDER`, `GROQ_MODEL`, `GEMINI_MODEL`, `RELAY_ENGAGEMENT_ID` have
    defaults in `render.yaml`.
