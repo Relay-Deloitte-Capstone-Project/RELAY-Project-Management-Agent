@@ -1,12 +1,16 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Check, Plus } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import { GhostButton, PageSection, Panel } from "@/components/relay/primitives";
+import { Chip, GhostButton, PageSection, Panel } from "@/components/relay/primitives";
+import { ProjectDetailPanel } from "@/components/relay/ProjectDetailPanel";
+import { ProjectWizardDialog } from "@/components/relay/ProjectWizardDialog";
+import { cn } from "@/lib/utils";
 import {
   SETUP_STEPS,
   completedStepCount,
   mockProjects,
+  type MockProject,
   type ProjectStatus,
 } from "@/lib/admin/mockProjects";
 
@@ -56,33 +60,58 @@ function formatDate(iso: string) {
   });
 }
 
+function StatChip({ label, value }: { label: string; value: string | number }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md bg-surface-sunken px-2 py-0.75 text-[10px]">
+      <span className="text-mute">{label}</span>
+      <span className="font-semibold text-ink">{value}</span>
+    </span>
+  );
+}
+
 function AllProjects() {
   const { user } = Route.useRouteContext();
-  const [projects] = useState(() => [...mockProjects]);
+  const [, setTick] = useState(0);
+  const projects = mockProjects;
+  const refresh = () => setTick((t) => t + 1);
+
+  const [viewProject, setViewProject] = useState<MockProject | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardResumeId, setWizardResumeId] = useState<string | null>(null);
+
+  function openNewProjectWizard() {
+    setWizardResumeId(null);
+    setWizardOpen(true);
+  }
+
+  function openContinueSetup(id: string) {
+    setWizardResumeId(id);
+    setWizardOpen(true);
+  }
 
   return (
     <AppShell user={user} title="All projects">
       <PageSection label="Projects" subtitle="Every client engagement connected to Relay.">
         <div className="mb-3 flex justify-end">
-          <Link to="/admin/projects/new">
-            <GhostButton tone="brand">
-              <Plus /> New project
-            </GhostButton>
-          </Link>
+          <GhostButton tone="brand" onClick={openNewProjectWizard}>
+            <Plus /> New project
+          </GhostButton>
         </div>
 
         <Panel>
           <div className="flex flex-col">
             {projects.map((p) => {
               const done = completedStepCount(p.setupProgress);
-              const pct = Math.round((done / SETUP_STEPS.length) * 100);
               return (
-                <div key={p.id} className="border-b border-border py-3 last:border-b-0">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <span className={`size-2 shrink-0 rounded-full ${statusDot[p.status]}`} />
+                <div key={p.id} className="border-b border-border py-3.5 last:border-b-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", statusDot[p.status])} />
                       <div>
-                        <div className="text-[13px] font-semibold text-ink">{p.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[13px] font-semibold text-ink">{p.name}</span>
+                          {p.capstone && <Chip tone="violet">Capstone project</Chip>}
+                        </div>
                         <div className="text-[11.5px] text-mute">
                           {p.clientName} · {p.jiraKey} · started {formatDate(p.startDate)}
                         </div>
@@ -90,41 +119,74 @@ function AllProjects() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span
-                        className={`rounded-sm px-1.5 py-0.5 text-[11px] font-semibold ${statusBadge[p.status]}`}
+                        className={cn(
+                          "rounded-sm px-1.5 py-0.5 text-[11px] font-semibold",
+                          statusBadge[p.status],
+                        )}
                       >
                         {statusLabel[p.status]}
                       </span>
                       {p.status === "setup" ? (
-                        <Link to="/admin/projects/new" search={{ project: p.id }}>
-                          <GhostButton tone="brand">Continue setup</GhostButton>
-                        </Link>
+                        <GhostButton tone="brand" onClick={() => openContinueSetup(p.id)}>
+                          Continue setup →
+                        </GhostButton>
                       ) : (
-                        <Link to="/admin/project-setup">
-                          <GhostButton>View</GhostButton>
-                        </Link>
+                        <GhostButton onClick={() => setViewProject(p)}>View →</GhostButton>
                       )}
                     </div>
                   </div>
 
+                  {p.status === "active" && (
+                    <div className="mt-2.5 pl-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <StatChip label="Tickets" value={p.ticketCount.toLocaleString()} />
+                          <StatChip label="Commits" value={p.commitCount.toLocaleString()} />
+                          <StatChip label="Coverage" value={`${p.coveragePct}%`} />
+                          <StatChip label="Team" value={p.memberCount} />
+                        </div>
+                        <span className="shrink-0 text-[10px] text-mute">
+                          Last sync: {p.lastSync}
+                        </span>
+                      </div>
+                      {p.capstone && (
+                        <p className="mt-1.5 text-[10.5px] text-mute">
+                          Syncing from KPD workboard · Jira Cloud Free
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {p.status === "setup" && (
                     <div className="mt-2.5 flex items-center gap-3 pl-5">
                       <div className="flex flex-grow items-center gap-1">
-                        {SETUP_STEPS.map((s) => (
-                          <div key={s} className="flex flex-grow flex-col items-center gap-1">
-                            <span
-                              className={`h-1.5 w-full rounded-full ${p.setupProgress[s] ? "bg-success" : "bg-surface-sunken"}`}
-                              title={STEP_LABEL[s]}
-                            />
-                            <span
-                              className={`text-[9.5px] font-medium tracking-wide uppercase ${p.setupProgress[s] ? "text-success" : "text-mute"}`}
-                            >
-                              {STEP_LABEL[s]}
-                            </span>
-                          </div>
-                        ))}
+                        {SETUP_STEPS.map((s) => {
+                          const isDone = p.setupProgress[s];
+                          return (
+                            <div key={s} className="flex flex-grow flex-col items-center gap-1">
+                              <span
+                                className={cn(
+                                  "flex h-4 w-full items-center justify-center rounded-full",
+                                  isDone ? "bg-success" : "bg-surface-sunken",
+                                )}
+                                title={STEP_LABEL[s]}
+                              >
+                                {isDone && <Check className="size-2.5 text-white" />}
+                              </span>
+                              <span
+                                className={cn(
+                                  "text-[9.5px] font-medium tracking-wide uppercase",
+                                  isDone ? "text-success" : "text-mute",
+                                )}
+                              >
+                                {STEP_LABEL[s]}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
                       <span className="shrink-0 text-[11px] font-semibold text-mute">
-                        {done}/{SETUP_STEPS.length} · {pct}% · {p.lastActivity}
+                        {done}/{SETUP_STEPS.length} steps complete · last updated {p.lastActivity}
                       </span>
                     </div>
                   )}
@@ -134,6 +196,14 @@ function AllProjects() {
           </div>
         </Panel>
       </PageSection>
+
+      <ProjectDetailPanel project={viewProject} onClose={() => setViewProject(null)} />
+      <ProjectWizardDialog
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        resumeProjectId={wizardResumeId}
+        onChanged={refresh}
+      />
     </AppShell>
   );
 }
