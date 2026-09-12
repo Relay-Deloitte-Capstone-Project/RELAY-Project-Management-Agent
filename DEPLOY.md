@@ -163,6 +163,31 @@ Merging to `main` is what deploys: Vercel redeploys the frontend (~2 min) and
 Render rebuilds the backend Docker image (~10 min). Watch each dashboard's
 deploy log if something looks off.
 
+### Cold starts (Render free tier sleeps after ~15 min idle)
+
+Three layers keep the demo from hitting a frozen backend:
+
+1. **Keep-alive pinger** — `.github/workflows/keepalive.yml` pings
+   `https://relay-backend-uafq.onrender.com/health` every 10 minutes.
+   Scheduled workflows only run from `main`, so this activates when the
+   branch merges. Watch the 750 instance-hours/month free-tier budget
+   (~720h for one always-on service) — disable the workflow after the demo.
+2. **Frontend wake-up ping** — the login page pings `/health` on load (with
+   a "Waking up the server…" note if it's slow), and every authenticated
+   page fires one too, so a cold start overlaps with the user signing in.
+3. **Lazy model load** — the backend answers `/health` within seconds of
+   waking; the ~100MB embedding model loads in the background. Chat
+   questions wait for it (503 only after 180s), everything else works
+   immediately.
+
+### Ask Project answer cache
+
+Repeat questions skip retrieval entirely: each stored question's embedding
+is compared (cosine ≥ `CACHE_SIMILARITY`, default 0.92) against the same
+user's past questions, and the old answer is reused **only if** every chunk
+it cited is unchanged since (`public.chunks.updated_at`, bumped by live
+sync). Cached answers show `cache` as the provider tag in the UI.
+
 ### Database edits that go live immediately
 
 There is **one** database — Neon, in the cloud. There is no local↔cloud sync to
