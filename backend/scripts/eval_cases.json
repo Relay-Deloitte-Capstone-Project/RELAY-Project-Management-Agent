@@ -1,0 +1,77 @@
+[
+  {
+    "name": "assignee-scoped bugs",
+    "question": "tell me the recent bugs raised for Akshar",
+    "expect_intent": "recent",
+    "abstain": false,
+    "cited_assignee": "akshar"
+  },
+  {
+    "name": "ticket describe (present)",
+    "question": "what is KPD-170 about",
+    "expect_intent": "ticket",
+    "abstain": false,
+    "must_cite": ["KPD-170"],
+    "must_mention": ["KPD-170"]
+  },
+  {
+    "name": "ticket brief description",
+    "question": "give me a brief description of ticket KPD-28",
+    "expect_intent": "ticket",
+    "abstain": false,
+    "must_cite": ["KPD-28"]
+  },
+  {
+    "name": "ticket absent",
+    "question": "describe ticket KPD-9999",
+    "expect_intent": "ticket",
+    "abstain": true,
+    "must_not_cite": ["KPD-249", "KPD-248", "KPD-243"]
+  },
+  {
+    "name": "sprint overview",
+    "question": "What was Sprint-03 about",
+    "expect_intent": "sprint",
+    "abstain": false,
+    "must_mention": ["sprint"]
+  },
+  {
+    "name": "project overview",
+    "question": "What is the mini-project we are building",
+    "expect_intent": "overview",
+    "abstain": false,
+    "must_cite": ["KPD-ENGAGEMENT"]
+  },
+  {
+    "name": "code snippet for ticket",
+    "question": "what was the code that was added for ticket KPD-170 on github, give me a quick snippet to understand it",
+    "expect_intent": "code",
+    "abstain": false,
+    "must_cite": ["4eba360"]
+  },
+  {
+    "name": "generic recent digest",
+    "question": "list down all the recent bugs and code changes",
+    "expect_intent": "recent",
+    "abstain": false
+  },
+  {
+    "name": "person with no records",
+    "question": "tell me the recent bugs raised for Zznotaperson",
+    "expect_intent": "recent",
+    "must_mention": ["don't have any recent records"]
+  },
+  {
+    "name": "out-of-project guardrail",
+    "question": "help me fix the code in my personal python script",
+    "abstain": false,
+    "must_mention": ["sorry"],
+    "must_not_cite": ["KPD-170", "KPD-33"]
+  },
+  {
+    "name": "semantic lookup still works",
+    "question": "what was the webhook handler issue?",
+    "abstain": false,
+    "must_mention": ["webhook"]
+  }
+]

@@ -177,6 +177,27 @@ This includes ingesting new Jira/GitHub data (`backend/scripts/`, `jira_toolkit.
 — point the script at the Neon URL and the deployed app answers from the new
 chunks immediately.
 
+### Live sync with Jira + GitHub (automatic)
+
+The backend keeps the database in step with live Jira and GitHub on its own —
+see `CHAT_DB_SYNC_PLAN.md` for the full design. A background task inside the
+Render web service (`backend/api/sync.py`, started in `main.py`'s lifespan)
+runs every `SYNC_INTERVAL_MINUTES` (default 5):
+
+- Jira issues updated since the last run → status/assignee/description changes
+  land in `public.chunks` (re-embedded only when the text changed).
+- New GitHub commits → new chunk rows (message + metadata; never code).
+- GitHub PRs → `raw.github_prs` + chunks with `source_type='github_pr'`.
+
+Useful endpoints: `GET /api/sync/status` (per-source last run),
+`POST /api/sync?full=true` (force full re-pull), `POST /api/sync/ticket/{key}`
+(instant resync of one ticket — call this from the assignee-change UI action).
+Set `SYNC_ENABLED=false` to disable the poller on an instance.
+
+One-time setup for this (already applied to production Neon): run
+`database/zone1.sql` and `database/zone3.sql` with psql.
+
+
 ### Safe database experiments (Neon branches)
 
 Don't test destructive changes against `production`. Create an isolated branch
