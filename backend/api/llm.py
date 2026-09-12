@@ -1,10 +1,11 @@
 """LLM providers for the answer step.
 
 The chain order is configurable via LLM_PROVIDER_CHAIN (comma-separated,
-e.g. "cerebras,gemini,groq"); the legacy single-provider LLM_PROVIDER var
+e.g. "gemini,gemini-lite,groq"); the legacy single-provider LLM_PROVIDER var
 is still honored as the primary when LLM_PROVIDER_CHAIN is unset. Any
 provider whose API key is missing is silently skipped, so adding a key to
-.env is all it takes to join the chain.
+.env is all it takes to join the chain. A provider that fails for any reason
+(rate limit included) falls through to the next one automatically.
 
 Cerebras and OpenRouter are both OpenAI-compatible chat-completions APIs,
 so one client covers both — only the base URL, key and model differ.
@@ -24,6 +25,11 @@ GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 # 3.5-flash with thinking disabled is the fastest Gemini that still writes prose.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 
+# 3.5-flash's free tier is tiny (5 RPM / 20 RPD), so the lite variant — same
+# quality class, much larger allowance (15 RPM / 500 RPD) — is the automatic
+# next step before falling all the way back to Groq.
+GEMINI_LITE_MODEL = os.environ.get("GEMINI_LITE_MODEL", "gemini-3.5-flash-lite")
+
 # Cerebras free tier: gpt-oss-120b (Production, 1M uncached tokens/day) is the
 # practical default; qwen-3.8-27b has a much larger request allowance if the
 # gpt-oss quota ever becomes the bottleneck.
@@ -37,7 +43,7 @@ OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3.5-light
 CHAIN = [
     p.strip().lower()
     for p in os.environ.get(
-        "LLM_PROVIDER_CHAIN", os.environ.get("LLM_PROVIDER", "cerebras,gemini,groq")
+        "LLM_PROVIDER_CHAIN", os.environ.get("LLM_PROVIDER", "gemini,gemini-lite,groq")
     ).split(",")
     if p.strip()
 ]
@@ -65,20 +71,28 @@ class GroqProvider:
 
 
 class GeminiProvider:
-    name = "gemini"
-
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str, name: str = "gemini", disable_thinking: bool = True):
+        self.name = name
+        self.model = model
+        self.disable_thinking = disable_thinking
         self.client = genai.Client(api_key=api_key)
 
     async def generate(self, prompt: str) -> str:
-        resp = await self.client.aio.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                temperature=0.2,
-                # Thinking triples latency for what is an extraction task.
-                thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+        config = genai_types.GenerateContentConfig(
+            temperature=0.2,
+            # Thinking triples latency for what is an extraction task. Not all
+            # variants accept the knob (the lite model 400s on it), so it's
+            # only sent for the primary.
+            thinking_config=(
+                genai_types.ThinkingConfig(thinking_budget=0)
+                if self.disable_thinking
+                else None
             ),
+        )
+        resp = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=config,
         )
         return (resp.text or "").strip()
 
@@ -114,7 +128,10 @@ def build_providers() -> list:
     if os.environ.get("GROQ_API_KEY"):
         available["groq"] = GroqProvider(os.environ["GROQ_API_KEY"])
     if _gemini_key():
-        available["gemini"] = GeminiProvider(_gemini_key())
+        available["gemini"] = GeminiProvider(_gemini_key(), GEMINI_MODEL)
+        available["gemini-lite"] = GeminiProvider(
+            _gemini_key(), GEMINI_LITE_MODEL, name="gemini-lite", disable_thinking=False
+        )
     if os.environ.get("CEREBRAS_API_KEY"):
         available["cerebras"] = OpenAICompatibleProvider(
             "cerebras",

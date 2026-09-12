@@ -1,0 +1,24 @@
+# Keeps the Render free-tier backend awake: Render sleeps a service after
+# ~15 min without traffic, and the cold start after that takes minutes.
+# This pings /health every 10 minutes so the service stays warm.
+#
+# Notes:
+# - GitHub's scheduled workflows can be delayed a few minutes under load —
+#   the frontend wake-up ping (login page) covers that gap.
+# - Scheduled workflows only run from the DEFAULT branch (main) — merging
+#   this file to main is what activates it.
+# - Render free tier allows 750 instance-hours/month; one always-awake
+#   service uses ~720. Disable this workflow after the demo if needed.
+name: keep-alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: # manual "warm it up now" button in the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health
+        run: curl -fsS -m 60 https://relay-backend-uafq.onrender.com/health

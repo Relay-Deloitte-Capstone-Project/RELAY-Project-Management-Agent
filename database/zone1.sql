@@ -55,3 +55,9 @@ CREATE TABLE IF NOT EXISTS public.sync_state (
     last_status    TEXT,                   -- 'ok' or the error message
     last_count     INTEGER                 -- rows upserted on the last run
 );
+
+-- Content-change timestamp on chunks: the answer cache (zone3) reuses a past
+-- answer only if every chunk it cited is older than the answer. sync.py sets
+-- this on real content updates; metadata-only touch-ups don't bump it.
+ALTER TABLE public.chunks
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
