@@ -8,6 +8,11 @@ export type ProjectTeamMember = { initials: string; name: string; role: string }
 
 export type MockProject = {
   id: string;
+  // Real public.projects.engagement_id once the wizard has created a
+  // backend row (see nextFromStep1 in the setup wizard) — undefined for
+  // projects that predate that wiring or were created while the backend
+  // was unreachable.
+  engagementId?: string;
   name: string;
   clientName: string;
   jiraKey: string;
@@ -44,6 +49,10 @@ export function firstIncompleteStep(progress: SetupProgress) {
 export const mockProjects: MockProject[] = [
   {
     id: "kafka",
+    // The one mock project with a real Postgres public.projects row behind
+    // it (seeded in database/sow.sql) — the others are display-only until
+    // they're created through the wizard, which sets this field for real.
+    engagementId: "proj-001",
     name: "Apache Kafka",
     clientName: "Apache Software Foundation",
     jiraKey: "KAN",

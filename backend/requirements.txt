@@ -6,3 +6,5 @@ sentence-transformers
 google-genai
 groq
 httpx
+pypdf
+python-multipart

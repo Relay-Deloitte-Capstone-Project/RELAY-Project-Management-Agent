@@ -1,10 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Check, Plus } from "lucide-react";
 import { useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { Chip, GhostButton, PageSection, Panel } from "@/components/relay/primitives";
 import { ProjectDetailPanel } from "@/components/relay/ProjectDetailPanel";
-import { ProjectWizardDialog } from "@/components/relay/ProjectWizardDialog";
 import { cn } from "@/lib/utils";
 import {
   SETUP_STEPS,
@@ -71,22 +70,21 @@ function StatChip({ label, value }: { label: string; value: string | number }) {
 
 function AllProjects() {
   const { user } = Route.useRouteContext();
-  const [, setTick] = useState(0);
+  const navigate = useNavigate();
   const projects = mockProjects;
-  const refresh = () => setTick((t) => t + 1);
 
   const [viewProject, setViewProject] = useState<MockProject | null>(null);
-  const [wizardOpen, setWizardOpen] = useState(false);
-  const [wizardResumeId, setWizardResumeId] = useState<string | null>(null);
 
+  // Both go to the real setup wizard route (backed by public.projects +
+  // the SOW pipeline) — this used to open ProjectWizardDialog, a separate,
+  // fully-mock duplicate of the same 5 steps that never reached the
+  // backend. That dialog has been removed.
   function openNewProjectWizard() {
-    setWizardResumeId(null);
-    setWizardOpen(true);
+    navigate({ to: "/admin/projects/new" });
   }
 
   function openContinueSetup(id: string) {
-    setWizardResumeId(id);
-    setWizardOpen(true);
+    navigate({ to: "/admin/projects/new", search: { project: id } });
   }
 
   return (
@@ -106,7 +104,9 @@ function AllProjects() {
                 <div key={p.id} className="border-b border-border py-3.5 last:border-b-0">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3">
-                      <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", statusDot[p.status])} />
+                      <span
+                        className={cn("mt-1.5 size-2 shrink-0 rounded-full", statusDot[p.status])}
+                      />
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-[13px] font-semibold text-ink">{p.name}</span>
@@ -198,12 +198,6 @@ function AllProjects() {
       </PageSection>
 
       <ProjectDetailPanel project={viewProject} onClose={() => setViewProject(null)} />
-      <ProjectWizardDialog
-        open={wizardOpen}
-        onOpenChange={setWizardOpen}
-        resumeProjectId={wizardResumeId}
-        onChanged={refresh}
-      />
     </AppShell>
   );
 }

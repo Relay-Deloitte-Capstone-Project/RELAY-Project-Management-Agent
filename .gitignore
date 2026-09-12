@@ -39,3 +39,4 @@ src/generated/
 backend/.env
 backend/.venv/
 backend/reports/
+backend/storage/
