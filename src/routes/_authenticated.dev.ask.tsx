@@ -8,7 +8,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { cn } from "@/lib/utils";
 
@@ -119,10 +119,10 @@ function getSessionMessages(sessionId: string, userId: string) {
   );
 }
 
-function sendSessionMessage(sessionId: string, userId: string, question: string) {
+function sendSessionMessage(sessionId: string, userId: string, question: string, userName?: string) {
   return apiCall<QueryResponse>(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ user_id: userId, question }),
+    body: JSON.stringify({ user_id: userId, question, user_name: userName }),
   });
 }
 
@@ -265,7 +265,7 @@ function AskProject() {
         setSessionId(sid);
       }
 
-      const data = await sendSessionMessage(sid, user.id, question);
+      const data = await sendSessionMessage(sid, user.id, question, user.name);
       const timingSeconds = data.timing_seconds ?? (performance.now() - clientStart) / 1000;
 
       const reply: Message = data.abstained
@@ -502,14 +502,23 @@ function AskProject() {
 
           <form
             onSubmit={handleSubmit}
-            className="flex h-14 shrink-0 items-center gap-3 border-t border-border px-6"
+            className="flex min-h-14 shrink-0 items-center gap-3 border-t border-border px-6 py-2"
           >
-            <input
+            <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Ask anything about this project..."
+              onKeyDown={(e) => {
+                // Enter sends; Shift+Enter inserts a newline.
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
+              placeholder="Ask anything about this project... (Shift+Enter for a new line)"
               disabled={pending}
-              className="h-9 flex-grow rounded-md border border-border bg-card px-3 text-[13px] text-ink outline-none transition-colors duration-150 placeholder:text-mute focus:border-brand disabled:opacity-60"
+              rows={1}
+              className="max-h-32 min-h-9 flex-grow resize-none rounded-md border border-border bg-card px-3 py-2 text-[13px] leading-snug text-ink outline-none transition-colors duration-150 placeholder:text-mute focus:border-brand disabled:opacity-60"
+              style={{ fieldSizing: "content" } as CSSProperties}
             />
             <button
               type="submit"

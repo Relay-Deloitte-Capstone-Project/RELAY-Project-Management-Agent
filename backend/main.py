@@ -8,7 +8,7 @@ from pathlib import Path
 
 import asyncpg
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # backend/.env wins over the repo-root .env, whose DATABASE_URL is Prisma's sqlite one.
@@ -37,6 +37,7 @@ async def _sync_loop(app: FastAPI):
     shortly after startup; afterwards every SYNC_INTERVAL_MINUTES. Failures
     are logged and retried next cycle — a sync error must never take the API
     down."""
+    await app.state.model_ready.wait()  # sync re-embeds changed chunks
     await asyncio.sleep(20)  # let startup finish before hitting the APIs
     while True:
         try:
@@ -45,6 +46,18 @@ async def _sync_loop(app: FastAPI):
         except Exception:
             logger.exception("live sync pass failed")
         await asyncio.sleep(SYNC_INTERVAL_MINUTES * 60)
+
+
+async def _load_model(app: FastAPI):
+    """Load the embedding model in the background so the server accepts
+    connections (and answers /health) within seconds of a cold start. Routes
+    that embed wait on app.state.model_ready; everything else is unaffected."""
+    try:
+        app.state.embedding_model = await asyncio.to_thread(load_embedding_model)
+    except Exception:
+        logger.exception("embedding model failed to load")
+    finally:
+        app.state.model_ready.set()
 
 
 def database_url() -> str:
@@ -61,20 +74,25 @@ def database_url() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Model, LLM client and connection pool are all built once, at startup.
-    app.state.embedding_model = load_embedding_model()
+    # LLM client and connection pool are built once, at startup. The embedding
+    # model (~100MB) loads in the background — on Render's free tier this is
+    # the difference between a ~5s and a multi-minute cold start.
+    app.state.embedding_model = None
+    app.state.model_ready = asyncio.Event()
     app.state.llm_providers = build_providers()
     # ivfflat.probes (recall for the vector search in api/query.py) is set on
     # the pm_user role in database/init.sql, not here — a per-connection SET
     # via asyncpg's pool init hook proved unreliable: nothing guarantees which
     # pooled connection serves a given request once the pool grows past one.
     app.state.pool = await asyncpg.create_pool(database_url(), min_size=1, max_size=5)
+    model_task = asyncio.create_task(_load_model(app))
     sync_task = None
     if SYNC_ENABLED:
         sync_task = asyncio.create_task(_sync_loop(app))
     try:
         yield
     finally:
+        model_task.cancel()
         if sync_task:
             sync_task.cancel()
         await app.state.pool.close()
@@ -98,5 +116,6 @@ app.include_router(sync_router)
 
 
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health(request: Request):
+    # Kept deliberately cheap — this is what the keep-alive pinger hits.
+    return {"status": "ok", "model_ready": request.app.state.model_ready.is_set()}

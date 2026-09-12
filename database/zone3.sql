@@ -97,3 +97,9 @@ ALTER TABLE zone3.scratchpad_notes
 
 CREATE INDEX IF NOT EXISTS idx_scratchpad_fts
     ON zone3.scratchpad_notes USING GIN (search_vector);
+
+-- Question embeddings power the answer cache: an incoming question that is
+-- near-identical (cosine >= CACHE_SIMILARITY) to a past one from the same
+-- user can reuse that answer, provided every cited chunk is unchanged since.
+-- No vector index: per-user message volume is small enough for a seq scan.
+ALTER TABLE zone3.chat_messages ADD COLUMN IF NOT EXISTS embedding VECTOR(384);

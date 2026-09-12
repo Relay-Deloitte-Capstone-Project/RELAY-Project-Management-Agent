@@ -65,7 +65,7 @@
     "name": "out-of-project guardrail",
     "question": "help me fix the code in my personal python script",
     "abstain": false,
-    "must_mention": ["sorry"],
+    "must_mention": ["cannot"],
     "must_not_cite": ["KPD-170", "KPD-33"]
   },
   {

@@ -10,6 +10,7 @@ import os
 import re
 import time
 
+import asyncio
 import asyncpg
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -126,6 +127,19 @@ def load_embedding_model() -> SentenceTransformer:
     return SentenceTransformer(EMBEDDING_MODEL)
 
 
+async def ready_model(request: Request) -> SentenceTransformer:
+    """Wait for the background-loaded embedding model (see main.lifespan).
+    Chat answers need it; /health and non-RAG routes never touch this."""
+    try:
+        await asyncio.wait_for(request.app.state.model_ready.wait(), timeout=180)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="Model is still loading, retry shortly")
+    model = request.app.state.embedding_model
+    if model is None:
+        raise HTTPException(status_code=503, detail="Embedding model failed to load")
+    return model
+
+
 def embed(model: SentenceTransformer, text: str) -> list:
     return model.encode([text], normalize_embeddings=True)[0].tolist()
 
@@ -210,6 +224,7 @@ async def run_query(
     question: str,
     engagement_id: str,
     history: list | None = None,
+    user_name: str | None = None,
 ) -> dict:
     """The full pipeline: intent-routed structured answers, the summarize
     shortcut, or embed→search→threshold→answer.
@@ -239,6 +254,7 @@ async def run_query(
         engagement_id=engagement_id,
         llm_providers=llm_providers,
         ctx={"CONTEXT_CHARS": CONTEXT_CHARS, "SNIPPET_CHARS": SNIPPET_CHARS},
+        user_name=user_name,
     )
     timings["intent"] = time.perf_counter() - t0
     if intent_result is not None:
@@ -424,7 +440,7 @@ async def query(req: QueryRequest, request: Request):
 
     return await run_query(
         pool=request.app.state.pool,
-        embedding_model=request.app.state.embedding_model,
+        embedding_model=await ready_model(request),
         llm_providers=request.app.state.llm_providers,
         question=question,
         engagement_id=req.engagement_id,
