@@ -64,7 +64,7 @@ CREATE TABLE public.chunks (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     embedding public.vector(384),
     created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT chunks_source_type_check CHECK ((source_type = ANY (ARRAY['jira_ticket'::text, 'github_commit'::text, 'github_pr'::text, 'confluence_doc'::text])))
+    CONSTRAINT chunks_source_type_check CHECK ((source_type = ANY (ARRAY['jira_ticket'::text, 'github_commit'::text, 'github_pr'::text, 'confluence_doc'::text, 'project_overview'::text])))
 );
 
 

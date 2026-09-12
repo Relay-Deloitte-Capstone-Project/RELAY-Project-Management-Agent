@@ -17,8 +17,20 @@ CREATE TABLE IF NOT EXISTS zone3.chat_sessions (
     created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Denormalised last-activity stamp: the sidebar sorts by it, so listing
+-- sessions never needs a join back into chat_messages.
+ALTER TABLE zone3.chat_sessions
+    ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMPTZ;
+
+-- Backfill for sessions created before this column existed.
+UPDATE zone3.chat_sessions s
+SET last_message_at = (
+    SELECT MAX(m.created_at) FROM zone3.chat_messages m WHERE m.session_id = s.id
+)
+WHERE s.last_message_at IS NULL;
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user
-    ON zone3.chat_sessions (user_id, engagement_id);
+    ON zone3.chat_sessions (user_id, engagement_id, last_message_at DESC);
 
 -- Every message in a session
 CREATE TABLE IF NOT EXISTS zone3.chat_messages (
@@ -32,8 +44,32 @@ CREATE TABLE IF NOT EXISTS zone3.chat_messages (
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Provenance/display columns from the task spec: power the
+-- "gemini · 3 sources · 1.2s" indicator and per-answer debugging.
+ALTER TABLE zone3.chat_messages ADD COLUMN IF NOT EXISTS llm_model TEXT;
+ALTER TABLE zone3.chat_messages ADD COLUMN IF NOT EXISTS latency_ms INTEGER;
+ALTER TABLE zone3.chat_messages ADD COLUMN IF NOT EXISTS chunk_count INTEGER;
+
 CREATE INDEX IF NOT EXISTS idx_messages_session
     ON zone3.chat_messages (session_id, created_at);
+
+-- One row per citation in an assistant message — the spec's replacement for
+-- the cited_chunk_ids array: revocation lookup ("every message that cited
+-- chunk X") is a B-tree lookup here, and tombstoning a revoked citation
+-- becomes a flag on one row instead of a text edit on the message.
+CREATE TABLE IF NOT EXISTS zone3.message_sources (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id      UUID NOT NULL
+                        REFERENCES zone3.chat_messages(id) ON DELETE CASCADE,
+    chunk_id        UUID,         -- public.chunks.id; NULL for live-fetched sources
+    source_doc_id   TEXT NOT NULL,
+    source_type     TEXT NOT NULL,
+    relevance_score REAL,
+    snippet         TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sources_message ON zone3.message_sources (message_id);
+CREATE INDEX IF NOT EXISTS idx_sources_chunk ON zone3.message_sources (chunk_id);
 
 -- Developer scratchpad notes
 CREATE TABLE IF NOT EXISTS zone3.scratchpad_notes (

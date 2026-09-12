@@ -53,14 +53,14 @@ async def get_sprint(sprint_id: int) -> dict:
     return await get(f"/rest/agile/1.0/sprint/{sprint_id}")
 
 
-async def sprint_issues(sprint_id: int) -> list:
-    """All issues in a sprint, with just the fields the analytics endpoints need."""
+async def sprint_issues(sprint_id: int, fields: str = "status,assignee") -> list:
+    """All issues in a sprint, with just the fields the caller needs."""
     issues = []
     start_at = 0
     while True:
         data = await get(
             f"/rest/agile/1.0/sprint/{sprint_id}/issue",
-            {"fields": "status,assignee", "startAt": start_at, "maxResults": 100},
+            {"fields": fields, "startAt": start_at, "maxResults": 100},
         )
         issues.extend(data.get("issues", []))
         start_at += len(data.get("issues", []))
