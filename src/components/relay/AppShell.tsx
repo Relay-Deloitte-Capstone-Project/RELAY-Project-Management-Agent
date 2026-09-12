@@ -3,6 +3,7 @@ import {
   Archive,
   BarChart3,
   Boxes,
+  ClipboardList,
   Database,
   FolderCog,
   FolderKanban,
@@ -59,6 +60,7 @@ const NAV: Record<Role, NavGroup[]> = {
         { to: "/mgr/onboarding-kit", label: "Onboarding kit", icon: <Rocket /> },
         { to: "/mgr/scope", label: "Scope guardian", icon: <Shield /> },
         { to: "/mgr/epics", label: "Epic progress", icon: <Boxes /> },
+        { to: "/mgr/deliverables", label: "Deliverables", icon: <ClipboardList /> },
       ],
     },
   ],
@@ -68,6 +70,7 @@ const NAV: Record<Role, NavGroup[]> = {
       items: [
         { to: "/admin/projects", label: "All projects", icon: <FolderKanban /> },
         { to: "/admin/projects/new", label: "Project setup", icon: <FolderCog /> },
+        { to: "/admin/deliverables", label: "Deliverables", icon: <ClipboardList /> },
       ],
     },
     {

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { GitPullRequest, History, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { AppShell } from "@/components/relay/AppShell";
 import { EmptyState, GhostButton, PageSection, Panel } from "@/components/relay/primitives";
 import {
@@ -31,8 +32,21 @@ type ScratchpadNote = {
   content: string;
   status: NoteStatus;
   source_pr: string | null;
+  pr_head_sha: string | null;
+  current_version: number;
   created_at: string;
+  updated_at: string;
   approved_at: string | null;
+};
+
+type NoteVersion = {
+  id: string;
+  version_num: number;
+  title: string | null;
+  content: string;
+  change_reason: "manual_edit" | "pr_update";
+  pr_diff_ref: string | null;
+  created_at: string;
 };
 
 async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
@@ -86,6 +100,26 @@ function deleteNote(userId: string, id: string) {
   });
 }
 
+function updateNote(userId: string, id: string, title: string, content: string) {
+  return apiCall<ScratchpadNote>(`/api/scratchpad/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ user_id: userId, title, content }),
+  });
+}
+
+function listVersions(userId: string, id: string) {
+  return apiCall<NoteVersion[]>(
+    `/api/scratchpad/${id}/versions?user_id=${encodeURIComponent(userId)}`,
+  );
+}
+
+function checkPrUpdate(userId: string, id: string) {
+  return apiCall<{ changed: boolean; pr_head_sha: string; diffstat?: string }>(
+    `/api/scratchpad/${id}/check-pr-update?user_id=${encodeURIComponent(userId)}`,
+    { method: "POST" },
+  );
+}
+
 export const Route = createFileRoute("/_authenticated/dev/scratchpad")({
   head: () => ({
     meta: [
@@ -119,6 +153,16 @@ function Scratchpad() {
   const [draftBody, setDraftBody] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const [editingNote, setEditingNote] = useState<ScratchpadNote | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const [historyNoteId, setHistoryNoteId] = useState<string | null>(null);
+  const [versions, setVersions] = useState<NoteVersion[] | null>(null);
+  const [versionsError, setVersionsError] = useState<string | null>(null);
 
   const drafts = notes.filter((n) => n.status === "draft");
   const approved = notes.filter((n) => n.status !== "draft");
@@ -207,6 +251,71 @@ function Scratchpad() {
     }
   }
 
+  function openEdit(note: ScratchpadNote) {
+    setEditingNote(note);
+    setEditTitle(note.title ?? "");
+    setEditBody(note.content);
+    setEditError(null);
+  }
+
+  async function handleSaveEdit() {
+    if (!editingNote || editSaving) return;
+    const title = editTitle.trim();
+    const content = editBody.trim();
+    if (!content) return;
+
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const updated = await updateNote(user.id, editingNote.id, title, content);
+      setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
+      setEditingNote(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Couldn't save changes.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
+
+  async function openHistory(id: string) {
+    setHistoryNoteId(id);
+    setVersions(null);
+    setVersionsError(null);
+    try {
+      const result = await listVersions(user.id, id);
+      setVersions(result);
+    } catch (err) {
+      setVersionsError(err instanceof Error ? err.message : "Couldn't load version history.");
+    }
+  }
+
+  async function handleCheckPrUpdate(id: string) {
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      const result = await checkPrUpdate(user.id, id);
+      if (result.changed) {
+        toast(`Linked PR has new changes (${result.diffstat}) — a version was saved.`);
+        const updated = notes.find((n) => n.id === id);
+        if (updated) {
+          setNotes((prev) =>
+            prev.map((n) =>
+              n.id === id
+                ? { ...n, pr_head_sha: result.pr_head_sha, current_version: n.current_version + 1 }
+                : n,
+            ),
+          );
+        }
+      } else {
+        toast("No code changes since this note was last synced.");
+      }
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Couldn't check the linked PR.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <AppShell user={user} title="Scratchpad">
       <PageSection
@@ -240,6 +349,7 @@ function Scratchpad() {
                   month: "short",
                   day: "numeric",
                 })}
+                {note.current_version > 1 && ` · v${note.current_version}`}
               </div>
               <div className="mt-2.5 flex items-center gap-2">
                 <GhostButton
@@ -249,7 +359,20 @@ function Scratchpad() {
                 >
                   {busyId === note.id ? "Approving…" : "Approve"}
                 </GhostButton>
-                <GhostButton>Edit</GhostButton>
+                <GhostButton onClick={() => openEdit(note)}>Edit</GhostButton>
+                {note.source_pr && (
+                  <GhostButton
+                    disabled={busyId === note.id}
+                    onClick={() => handleCheckPrUpdate(note.id)}
+                  >
+                    <GitPullRequest /> Check PR
+                  </GhostButton>
+                )}
+                {note.current_version > 1 && (
+                  <GhostButton onClick={() => openHistory(note.id)}>
+                    <History /> History
+                  </GhostButton>
+                )}
                 <GhostButton disabled={busyId === note.id} onClick={() => handleDelete(note.id)}>
                   Dismiss
                 </GhostButton>
@@ -302,7 +425,24 @@ function Scratchpad() {
                       Promote
                     </GhostButton>
                   )}
-                  <GhostButton>
+                  {note.source_pr && (
+                    <span title="Check for code changes on the linked PR">
+                      <GhostButton
+                        disabled={busyId === note.id}
+                        onClick={() => handleCheckPrUpdate(note.id)}
+                      >
+                        <GitPullRequest />
+                      </GhostButton>
+                    </span>
+                  )}
+                  {note.current_version > 1 && (
+                    <span title="Version history">
+                      <GhostButton onClick={() => openHistory(note.id)}>
+                        <History />
+                      </GhostButton>
+                    </span>
+                  )}
+                  <GhostButton onClick={() => openEdit(note)}>
                     <Pencil />
                   </GhostButton>
                   <GhostButton
@@ -323,6 +463,7 @@ function Scratchpad() {
                     day: "numeric",
                   })}{" "}
                 · From {note.source_pr ?? "manual"}
+                {note.current_version > 1 && ` · v${note.current_version}`}
               </div>
             </div>
           ))
@@ -387,6 +528,82 @@ function Scratchpad() {
           </Dialog>
         </div>
       </PageSection>
+
+      <Dialog open={editingNote !== null} onOpenChange={(open) => !open && setEditingNote(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-[14px]">Edit note</DialogTitle>
+            <DialogDescription className="text-[13px]">
+              Your previous version is kept in this note's history — nothing is lost.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Note title"
+              className="text-[13px]"
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+            />
+            <Textarea
+              rows={5}
+              className="text-[13px]"
+              value={editBody}
+              onChange={(e) => setEditBody(e.target.value)}
+            />
+            {editError && <p className="text-[12px] text-destructive">{editError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setEditingNote(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={editSaving || !editBody.trim()} onClick={handleSaveEdit}>
+              {editSaving ? "Saving…" : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={historyNoteId !== null}
+        onOpenChange={(open) => !open && setHistoryNoteId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-[14px]">Version history</DialogTitle>
+            <DialogDescription className="text-[13px]">
+              Every prior version of this note, oldest changes at the bottom.
+            </DialogDescription>
+          </DialogHeader>
+          {versionsError && <p className="text-[13px] text-destructive">{versionsError}</p>}
+          {!versions && !versionsError && (
+            <div className="flex items-center gap-2 py-2 text-[13px] text-mute">
+              <Loader2 className="size-3.5 animate-spin" /> Loading…
+            </div>
+          )}
+          {versions && versions.length === 0 && (
+            <p className="text-[13px] text-mute">No prior versions yet.</p>
+          )}
+          {versions && versions.length > 0 && (
+            <div className="max-h-[360px] space-y-2 overflow-y-auto">
+              {versions.map((v) => (
+                <div key={v.id} className="rounded-lg border border-border px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-semibold text-ink">v{v.version_num}</span>
+                    <span className="text-[11px] text-mute">
+                      {v.change_reason === "pr_update" ? "code changed" : "manual edit"} ·{" "}
+                      {new Date(v.created_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[13px] leading-[1.4] text-mute">{v.content}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <PageSection label="Retention rule">
         <Panel>

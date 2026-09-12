@@ -42,6 +42,7 @@ src/generated/
 backend/.env
 backend/.venv/
 backend/reports/
+backend/storage/
 project-memory-explore/github_token.txt
 .neon
 
