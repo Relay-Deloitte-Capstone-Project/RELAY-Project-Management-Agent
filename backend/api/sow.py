@@ -33,7 +33,7 @@ from pypdf import PdfReader
 from starlette.concurrency import run_in_threadpool
 
 from api import llm
-from api.query import embed, to_pgvector
+from api.query import embed, ready_model, to_pgvector
 
 router = APIRouter()
 
@@ -185,7 +185,7 @@ async def upload_sow(
     await _log(pool, engagement_id, "SOW", "Uploaded {} ({} bytes)".format(file.filename, len(raw)))
 
     try:
-        await _parse_and_index(pool, request.app.state.embedding_model, document_id, engagement_id, str(storage_path))
+        await _parse_and_index(pool, await ready_model(request), document_id, engagement_id, str(storage_path))
     except Exception as exc:
         # A document that failed to parse must not leave chunks behind: they'd
         # be searchable by Ask Project's RAG (public.chunks has no FK back to
