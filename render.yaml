@@ -20,6 +20,15 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # Jira Cloud credentials for /api/analytics/* (charts 503 without them)
+      - key: JIRA_SITE
+        sync: false
+      - key: JIRA_EMAIL
+        sync: false
+      - key: JIRA_API_TOKEN
+        sync: false
+      - key: JIRA_BOARD_ID
+        sync: false
       - key: LLM_PROVIDER
         value: groq
       - key: GROQ_MODEL
