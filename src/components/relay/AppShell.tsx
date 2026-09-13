@@ -3,6 +3,7 @@ import {
   Archive,
   BarChart3,
   Boxes,
+  ClipboardList,
   Database,
   FolderCog,
   FolderKanban,
@@ -59,6 +60,7 @@ const NAV: Record<Role, NavGroup[]> = {
         { to: "/mgr/onboarding-kit", label: "Onboarding kit", icon: <Rocket /> },
         { to: "/mgr/scope", label: "Scope guardian", icon: <Shield /> },
         { to: "/mgr/epics", label: "Epic progress", icon: <Boxes /> },
+        { to: "/mgr/deliverables", label: "Deliverables", icon: <ClipboardList /> },
       ],
     },
   ],
@@ -68,6 +70,7 @@ const NAV: Record<Role, NavGroup[]> = {
       items: [
         { to: "/admin/projects", label: "All projects", icon: <FolderKanban /> },
         { to: "/admin/projects/new", label: "Project setup", icon: <FolderCog /> },
+        { to: "/admin/deliverables", label: "Deliverables", icon: <ClipboardList /> },
       ],
     },
     {
@@ -215,6 +218,14 @@ export function AppShell({
 }) {
   const { dark, toggle } = useDarkMode();
   const period = useTimePeriod();
+
+  // Fire-and-forget wake-up ping: users with a saved session skip the login
+  // page (which has its own ping), so authenticated pages poke the backend
+  // too. Cheap — /health answers in ms once the service is warm.
+  useEffect(() => {
+    const api = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
+    fetch(`${api}/health`).catch(() => {});
+  }, []);
 
   return (
     <div className="flex h-screen min-w-[1024px] overflow-hidden bg-background">

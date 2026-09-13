@@ -56,6 +56,9 @@ psql "$NEON_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
 grep -v 'OWNER TO' database/relay_db_dump.sql > /tmp/relay_restore.sql
 psql "$NEON_URL" -f /tmp/relay_restore.sql
 psql "$NEON_URL" -f database/zone3.sql
+psql "$NEON_URL" -f database/sow.sql
+psql "$NEON_URL" -f database/project_setup.sql
+psql "$NEON_URL" -f database/project_members.sql   # after prisma db push — needs "User"
 psql "$NEON_URL" -c "ALTER DATABASE neondb SET ivfflat.probes = 10;"
 psql "$NEON_URL" -c "SELECT count(*) FROM public.chunks;"   # expect 1070
 ```
@@ -90,6 +93,13 @@ Prerequisite: step 1 approved.
    | `GROQ_API_KEY` | your key from <https://console.groq.com/keys> (free) |
    | `GOOGLE_GEMINI_API` | your key from <https://aistudio.google.com/apikey> (recommended fallback) |
    | `CORS_ORIGINS` | `http://localhost:3000` for now — replaced with the Vercel URL in step 5 |
+   | `JIRA_SITE` | e.g. `yourteam.atlassian.net` — needed by the burndown/team-breakdown charts |
+   | `JIRA_EMAIL` | Jira account email |
+   | `JIRA_API_TOKEN` | id.atlassian.com → Security → API tokens |
+   | `JIRA_BOARD_ID` | optional; defaults to `34` |
+
+   Without the `JIRA_*` vars the analytics endpoints return 503 by design and
+   the sprint charts show "Request failed (503)".
 
    `LLM_PROVIDER`, `GROQ_MODEL`, `GEMINI_MODEL`, `RELAY_ENGAGEMENT_ID` have
    defaults in `render.yaml`.
@@ -163,6 +173,31 @@ Merging to `main` is what deploys: Vercel redeploys the frontend (~2 min) and
 Render rebuilds the backend Docker image (~10 min). Watch each dashboard's
 deploy log if something looks off.
 
+### Cold starts (Render free tier sleeps after ~15 min idle)
+
+Three layers keep the demo from hitting a frozen backend:
+
+1. **Keep-alive pinger** — `.github/workflows/keepalive.yml` pings
+   `https://relay-backend-uafq.onrender.com/health` every 10 minutes.
+   Scheduled workflows only run from `main`, so this activates when the
+   branch merges. Watch the 750 instance-hours/month free-tier budget
+   (~720h for one always-on service) — disable the workflow after the demo.
+2. **Frontend wake-up ping** — the login page pings `/health` on load (with
+   a "Waking up the server…" note if it's slow), and every authenticated
+   page fires one too, so a cold start overlaps with the user signing in.
+3. **Lazy model load** — the backend answers `/health` within seconds of
+   waking; the ~100MB embedding model loads in the background. Chat
+   questions wait for it (503 only after 180s), everything else works
+   immediately.
+
+### Ask Project answer cache
+
+Repeat questions skip retrieval entirely: each stored question's embedding
+is compared (cosine ≥ `CACHE_SIMILARITY`, default 0.92) against the same
+user's past questions, and the old answer is reused **only if** every chunk
+it cited is unchanged since (`public.chunks.updated_at`, bumped by live
+sync). Cached answers show `cache` as the provider tag in the UI.
+
 ### Database edits that go live immediately
 
 There is **one** database — Neon, in the cloud. There is no local↔cloud sync to
@@ -176,6 +211,27 @@ psql "$DATABASE_URL"          # or: edit rows in Neon's dashboard SQL Editor
 This includes ingesting new Jira/GitHub data (`backend/scripts/`, `jira_toolkit.py`)
 — point the script at the Neon URL and the deployed app answers from the new
 chunks immediately.
+
+### Live sync with Jira + GitHub (automatic)
+
+The backend keeps the database in step with live Jira and GitHub on its own —
+see `CHAT_DB_SYNC_PLAN.md` for the full design. A background task inside the
+Render web service (`backend/api/sync.py`, started in `main.py`'s lifespan)
+runs every `SYNC_INTERVAL_MINUTES` (default 5):
+
+- Jira issues updated since the last run → status/assignee/description changes
+  land in `public.chunks` (re-embedded only when the text changed).
+- New GitHub commits → new chunk rows (message + metadata; never code).
+- GitHub PRs → `raw.github_prs` + chunks with `source_type='github_pr'`.
+
+Useful endpoints: `GET /api/sync/status` (per-source last run),
+`POST /api/sync?full=true` (force full re-pull), `POST /api/sync/ticket/{key}`
+(instant resync of one ticket — call this from the assignee-change UI action).
+Set `SYNC_ENABLED=false` to disable the poller on an instance.
+
+One-time setup for this (already applied to production Neon): run
+`database/zone1.sql` and `database/zone3.sql` with psql.
+
 
 ### Safe database experiments (Neon branches)
 

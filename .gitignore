@@ -42,6 +42,7 @@ src/generated/
 backend/.env
 backend/.venv/
 backend/reports/
+backend/storage/
 project-memory-explore/github_token.txt
 .neon
 
@@ -49,3 +50,6 @@ project-memory-explore/github_token.txt
 # Local conda env / alt lockfiles
 relay_env/
 pnpm-lock.yaml
+
+__pycache__/
+kimi-export-session_*.md

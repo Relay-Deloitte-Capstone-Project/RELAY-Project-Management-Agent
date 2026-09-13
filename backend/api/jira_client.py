@@ -13,7 +13,11 @@ import os
 
 import httpx
 
-SITE = os.environ.get("JIRA_SITE", "")
+# Accept the site with or without scheme — pasting "https://x.atlassian.net"
+# would otherwise produce a malformed https://https://... base URL and every
+# analytics call would 500 (surfacing as "Failed to fetch" in the browser,
+# since FastAPI's unhandled-error responses bypass the CORS middleware).
+SITE = os.environ.get("JIRA_SITE", "").removeprefix("https://").removeprefix("http://").strip("/")
 EMAIL = os.environ.get("JIRA_EMAIL", "")
 TOKEN = os.environ.get("JIRA_API_TOKEN", "")
 BOARD_ID = int(os.environ.get("JIRA_BOARD_ID", "34"))
@@ -53,14 +57,14 @@ async def get_sprint(sprint_id: int) -> dict:
     return await get(f"/rest/agile/1.0/sprint/{sprint_id}")
 
 
-async def sprint_issues(sprint_id: int) -> list:
-    """All issues in a sprint, with just the fields the analytics endpoints need."""
+async def sprint_issues(sprint_id: int, fields: str = "status,assignee") -> list:
+    """All issues in a sprint, with just the fields the caller needs."""
     issues = []
     start_at = 0
     while True:
         data = await get(
             f"/rest/agile/1.0/sprint/{sprint_id}/issue",
-            {"fields": "status,assignee", "startAt": start_at, "maxResults": 100},
+            {"fields": fields, "startAt": start_at, "maxResults": 100},
         )
         issues.extend(data.get("issues", []))
         start_at += len(data.get("issues", []))
