@@ -17,6 +17,7 @@ ROOT_ENV = Path(__file__).parent.parent / ".env"
 load_dotenv(BACKEND_ENV)
 load_dotenv(ROOT_ENV)
 
+from api.access import router as access_router  # noqa: E402
 from api.admin_projects import router as admin_projects_router  # noqa: E402
 from api.analytics import router as analytics_router  # noqa: E402
 from api.llm import build_providers  # noqa: E402
@@ -109,6 +110,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(access_router)
 app.include_router(admin_projects_router)
 app.include_router(query_router)
 app.include_router(sessions_router)

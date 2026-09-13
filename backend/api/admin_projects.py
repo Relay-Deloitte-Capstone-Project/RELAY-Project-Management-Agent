@@ -9,11 +9,11 @@ status to 'active'. This is what gives the SOW upload pipeline (api/sow.py)
 a real engagement_id to attach to, instead of every test upload landing on
 the one hand-seeded 'proj-001' row.
 
-Team assignment (wizard Step 5) deliberately isn't wired here: this app's
-users live in Prisma/SQLite on the Node side (see prisma/schema.prisma),
-not in this Postgres instance, so a real project_members FK to users.id
-can't be satisfied from this backend. Team stays mock-only until that's
-resolved.
+Team assignment (wizard Step 5) writes public.project_members rows via the
+/api/admin/projects/{id}/members endpoints below — that table doubles as
+the access-control list api/access.py enforces for Ask Project. "User" rows
+are reachable via FK because prisma db push targets this same Postgres
+instance (the older SQLite split no longer applies).
 """
 
 import re
@@ -254,3 +254,111 @@ async def upsert_governance(engagement_id: str, body: Governance, request: Reque
         body.dpa_reference,
     )
     return dict(row)
+
+
+# --- Team (wizard Step 5) — public.project_members, the same table
+# --- api/access.py enforces for Ask Project reads. -------------------------
+
+MEMBER_ROLES = ("DEVELOPER", "MANAGER", "OBSERVER")
+
+
+class NewMember(BaseModel):
+    user_id: str
+    role: str = "DEVELOPER"
+
+
+def _row_to_member(r) -> dict:
+    return {
+        "user_id": r["user_id"],
+        "name": r["name"],
+        "email": r["email"],
+        "role": r["role"],
+        "added_by": r["added_by"],
+        "created_at": r["created_at"],
+    }
+
+
+@router.get("/api/admin/users")
+async def search_users(request: Request, q: Optional[str] = None):
+    """User picker for wizard Step 5 — searches the real Prisma "User" table
+    instead of the mock roster the wizard used before."""
+    pool: asyncpg.Pool = request.app.state.pool
+    if q and q.strip():
+        rows = await pool.fetch(
+            """
+            SELECT id, name, email, role FROM "User"
+            WHERE name ILIKE $1 OR email ILIKE $1
+            ORDER BY name
+            LIMIT 20
+            """,
+            f"%{q.strip()}%",
+        )
+    else:
+        rows = await pool.fetch('SELECT id, name, email, role FROM "User" ORDER BY name LIMIT 50')
+    return [dict(r) for r in rows]
+
+
+@router.get("/api/admin/projects/{engagement_id}/members")
+async def list_members(engagement_id: str, request: Request):
+    pool: asyncpg.Pool = request.app.state.pool
+    rows = await pool.fetch(
+        """
+        SELECT pm.user_id, u.name, u.email, pm.role, pm.added_by, pm.created_at
+        FROM public.project_members pm
+        JOIN "User" u ON u.id = pm.user_id
+        WHERE pm.engagement_id = $1
+        ORDER BY pm.created_at
+        """,
+        engagement_id,
+    )
+    return [_row_to_member(r) for r in rows]
+
+
+@router.put("/api/admin/projects/{engagement_id}/members")
+async def upsert_member(engagement_id: str, body: NewMember, request: Request):
+    role = body.role.upper()
+    if role not in MEMBER_ROLES:
+        raise HTTPException(status_code=400, detail=f"role must be one of {MEMBER_ROLES}")
+
+    pool: asyncpg.Pool = request.app.state.pool
+    await _require_project(pool, engagement_id)
+    if not await pool.fetchval('SELECT 1 FROM "User" WHERE id = $1', body.user_id):
+        raise HTTPException(status_code=404, detail="Unknown user")
+
+    row = await pool.fetchrow(
+        """
+        INSERT INTO public.project_members (engagement_id, user_id, role, added_by)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (engagement_id, user_id) DO UPDATE SET role = EXCLUDED.role
+        RETURNING engagement_id, user_id, role, created_at
+        """,
+        engagement_id,
+        body.user_id,
+        role,
+        None,
+    )
+    user = await pool.fetchrow('SELECT name, email FROM "User" WHERE id = $1', body.user_id)
+    return {
+        "user_id": row["user_id"],
+        "name": user["name"],
+        "email": user["email"],
+        "role": row["role"],
+        "added_by": None,
+        "created_at": row["created_at"],
+    }
+
+
+@router.delete("/api/admin/projects/{engagement_id}/members/{user_id}")
+async def remove_member(engagement_id: str, user_id: str, request: Request):
+    """Removing the row is the whole revocation story: api/access.py checks
+    membership on every Ask Project message, so the user loses read access
+    to this project's data on their very next query."""
+    pool: asyncpg.Pool = request.app.state.pool
+    result = await pool.execute(
+        "DELETE FROM public.project_members WHERE engagement_id = $1 AND user_id = $2",
+        engagement_id,
+        user_id,
+    )
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Membership not found")
+    return {"ok": True}
