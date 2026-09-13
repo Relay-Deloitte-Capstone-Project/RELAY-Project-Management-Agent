@@ -56,6 +56,9 @@ psql "$NEON_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
 grep -v 'OWNER TO' database/relay_db_dump.sql > /tmp/relay_restore.sql
 psql "$NEON_URL" -f /tmp/relay_restore.sql
 psql "$NEON_URL" -f database/zone3.sql
+psql "$NEON_URL" -f database/sow.sql
+psql "$NEON_URL" -f database/project_setup.sql
+psql "$NEON_URL" -f database/project_members.sql   # after prisma db push — needs "User"
 psql "$NEON_URL" -c "ALTER DATABASE neondb SET ivfflat.probes = 10;"
 psql "$NEON_URL" -c "SELECT count(*) FROM public.chunks;"   # expect 1070
 ```

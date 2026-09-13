@@ -32,7 +32,6 @@ import {
   type MockProject,
   type SetupStepKey,
 } from "@/lib/admin/mockProjects";
-import { allUsers } from "@/lib/mockData";
 
 export const Route = createFileRoute("/_authenticated/admin/projects_/new")({
   validateSearch: (search: Record<string, unknown>): { project?: string } => {
@@ -88,7 +87,10 @@ type SowDocument = {
   }[];
 };
 type TeamRole = "Developer" | "Manager" | "Observer";
-type AddedMember = { name: string; email: string; role: TeamRole };
+type AddedMember = { id: string; name: string; email: string; role: TeamRole };
+// Row from GET /api/admin/users — the real Prisma "User" table, which
+// replaced the mock roster (allUsers from mockData) as the picker source.
+type BackendUser = { id: string; name: string; email: string; role: string };
 type ConnState = "idle" | "testing" | "success" | "error";
 
 function StepProgress({ step }: { step: number }) {
@@ -232,11 +234,15 @@ function NewProjectWizard() {
   const [retentionDays, setRetentionDays] = useState(String(resuming?.retentionDays ?? 30));
   const [dpaReference, setDpaReference] = useState(resuming?.dpaReference ?? "");
 
-  // Step 5
+  // Step 5 — real users + persisted memberships (public.project_members via
+  // /api/admin/projects/{id}/members, backend/api/admin_projects.py). That
+  // table doubles as the access list for Ask Project, so adding someone
+  // here is what lets them read this project's data.
   const [search, setSearch] = useState("");
+  const [backendUsers, setBackendUsers] = useState<BackendUser[]>([]);
   const [pendingRole, setPendingRole] = useState<Record<string, TeamRole>>({});
   const [addedMembers, setAddedMembers] = useState<AddedMember[]>([
-    { name: user.name, email: "", role: "Manager" },
+    { id: user.id, name: user.name, email: user.email, role: "Manager" },
   ]);
   const [finished, setFinished] = useState(false);
 
@@ -284,16 +290,67 @@ function NewProjectWizard() {
     };
   }, [engagementId]);
 
+  // Step 5 data: the user roster once on mount; the project's saved members
+  // whenever a real engagement exists (created on Step 1, or resumed). The
+  // admin running the wizard is upserted as MANAGER so the "Already added"
+  // row they see is a real membership, not just local state.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/api/admin/users`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((users: BackendUser[]) => {
+        if (!cancelled) setBackendUsers(users);
+      })
+      .catch(() => {
+        // Best-effort — an unreachable backend leaves the picker empty.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!engagementId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await fetch(`${API_URL}/api/admin/projects/${engagementId}/members`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: user.id, role: "MANAGER" }),
+        });
+        const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/members`);
+        if (!res.ok || cancelled) return;
+        const members: AddedMember[] = (await res.json()).map(
+          (m: { user_id: string; name: string; email: string; role: string }) => ({
+            id: m.user_id,
+            name: m.name,
+            email: m.email,
+            role: (m.role.charAt(0) + m.role.slice(1).toLowerCase()) as TeamRole,
+          }),
+        );
+        setAddedMembers(members);
+      } catch {
+        // Best-effort — the locally seeded "current user as Manager" row stays.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // user.id is stable for the session; engagementId is the real trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engagementId]);
+
   const candidateUsers = useMemo(
     () =>
-      allUsers.filter(
+      backendUsers.filter(
         (u) =>
-          !addedMembers.some((m) => m.name === u.name) &&
+          !addedMembers.some((m) => m.id === u.id) &&
           (search.trim() === "" ||
             u.name.toLowerCase().includes(search.toLowerCase()) ||
             u.email.toLowerCase().includes(search.toLowerCase())),
       ),
-    [search, addedMembers],
+    [search, addedMembers, backendUsers],
   );
 
   function testJira() {
@@ -453,13 +510,30 @@ function NewProjectWizard() {
     setDeliverables((prev) => prev.filter((d) => d.id !== id));
   }
 
-  function addMember(name: string, email: string) {
-    const role = pendingRole[name] ?? "Developer";
-    setAddedMembers((prev) => [...prev, { name, email, role }]);
+  function addMember(candidate: BackendUser) {
+    const role = pendingRole[candidate.id] ?? "Developer";
+    setAddedMembers((prev) => [
+      ...prev,
+      { id: candidate.id, name: candidate.name, email: candidate.email, role },
+    ]);
+    if (!engagementId) return;
+    fetch(`${API_URL}/api/admin/projects/${engagementId}/members`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: candidate.id, role: role.toUpperCase() }),
+    }).catch(() => {
+      // Best-effort — the row stays in the wizard's list either way.
+    });
   }
 
-  function removeMember(name: string) {
-    setAddedMembers((prev) => prev.filter((m) => m.name !== name));
+  function removeMember(id: string) {
+    setAddedMembers((prev) => prev.filter((m) => m.id !== id));
+    if (!engagementId) return;
+    fetch(`${API_URL}/api/admin/projects/${engagementId}/members/${id}`, {
+      method: "DELETE",
+    }).catch(() => {
+      // Best-effort — it's already gone from the wizard's view either way.
+    });
   }
 
   // Persists progress as the admin advances — matches the spec's "save on
@@ -1072,16 +1146,16 @@ function NewProjectWizard() {
                 <div className="flex flex-col gap-1.5">
                   {candidateUsers.map((u) => (
                     <div
-                      key={u.email}
+                      key={u.id}
                       className="flex items-center gap-3 rounded-lg bg-surface-sunken px-3 py-2"
                     >
                       <span className="size-1.5 shrink-0 rounded-full bg-mute" />
                       <span className="w-40 shrink-0 truncate text-[13px] text-ink">{u.name}</span>
                       <span className="flex-grow truncate text-[12px] text-mute">{u.email}</span>
                       <Select
-                        value={pendingRole[u.name] ?? "Developer"}
+                        value={pendingRole[u.id] ?? "Developer"}
                         onValueChange={(v) =>
-                          setPendingRole((prev) => ({ ...prev, [u.name]: v as TeamRole }))
+                          setPendingRole((prev) => ({ ...prev, [u.id]: v as TeamRole }))
                         }
                       >
                         <SelectTrigger className="h-7 w-32 text-[12px]">
@@ -1093,7 +1167,7 @@ function NewProjectWizard() {
                           <SelectItem value="Observer">Observer</SelectItem>
                         </SelectContent>
                       </Select>
-                      <GhostButton tone="brand" onClick={() => addMember(u.name, u.email)}>
+                      <GhostButton tone="brand" onClick={() => addMember(u)}>
                         Add
                       </GhostButton>
                     </div>
@@ -1106,7 +1180,7 @@ function NewProjectWizard() {
                 <div className="flex flex-col gap-1.5">
                   {addedMembers.map((m) => (
                     <div
-                      key={m.name}
+                      key={m.id}
                       className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
                     >
                       <span className="size-1.5 shrink-0 rounded-full bg-success" />
@@ -1115,7 +1189,7 @@ function NewProjectWizard() {
                         {m.email || "—"}
                       </span>
                       <span className="text-[12px] font-medium text-mute">{m.role}</span>
-                      <GhostButton tone="danger" onClick={() => removeMember(m.name)}>
+                      <GhostButton tone="danger" onClick={() => removeMember(m.id)}>
                         Remove
                       </GhostButton>
                     </div>

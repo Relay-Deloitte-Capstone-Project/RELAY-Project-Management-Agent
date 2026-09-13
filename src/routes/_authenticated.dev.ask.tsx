@@ -10,6 +10,13 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { AppShell } from "@/components/relay/AppShell";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dev/ask")({
@@ -35,9 +42,17 @@ export const Route = createFileRoute("/_authenticated/dev/ask")({
 // running somewhere other than the default local port.
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
-// The corpus this backend serves is all under this engagement — matches the
-// backend's own RELAY_ENGAGEMENT_ID default (backend/api/query.py).
-const ENGAGEMENT_ID = "proj-001";
+// Which projects this user may read is resolved server-side
+// (GET /api/my-projects, backed by public.project_members —
+// backend/api/access.py). Nothing project-related is hardcoded here anymore:
+// a developer sees exactly the projects an admin assigned them, an admin
+// sees them all.
+type ProjectOption = {
+  engagement_id: string;
+  name: string;
+  client_name: string;
+  status: string;
+};
 
 type Source = {
   source_doc_id: string;
@@ -93,16 +108,16 @@ async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-function listSessions(userId: string) {
+function listSessions(userId: string, engagementId: string) {
   return apiCall<SessionSummary[]>(
-    `/api/sessions?user_id=${encodeURIComponent(userId)}&engagement_id=${ENGAGEMENT_ID}`,
+    `/api/sessions?user_id=${encodeURIComponent(userId)}&engagement_id=${encodeURIComponent(engagementId)}`,
   );
 }
 
-function createSession(userId: string) {
+function createSession(userId: string, engagementId: string) {
   return apiCall<{ session_id: string; created_at: string }>("/api/sessions", {
     method: "POST",
-    body: JSON.stringify({ user_id: userId, engagement_id: ENGAGEMENT_ID }),
+    body: JSON.stringify({ user_id: userId, engagement_id: engagementId }),
   });
 }
 
@@ -164,6 +179,9 @@ function chipLabel(s: Source): string {
 
 function AskProject() {
   const { user } = Route.useRouteContext();
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [engagementId, setEngagementId] = useState<string | null>(null);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -175,12 +193,13 @@ function AskProject() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const refreshSessions = useCallback(async () => {
+    if (!engagementId) return;
     try {
-      setSessions(await listSessions(user.id));
+      setSessions(await listSessions(user.id, engagementId));
     } catch {
       // A failed history refresh leaves the current list as-is.
     }
-  }, [user.id]);
+  }, [user.id, engagementId]);
 
   const loadSession = useCallback(
     async (id: string) => {
@@ -199,14 +218,42 @@ function AskProject() {
     [user.id],
   );
 
-  // Resume the most recent conversation on load instead of always starting
-  // blank — a session is only created lazily on the first message sent if
-  // none exists yet.
+  // Resolve which projects this user may read — the list drives both the
+  // picker (when there's more than one) and which engagement new sessions
+  // are created under.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const list = await listSessions(user.id);
+        const list = await apiCall<ProjectOption[]>(
+          `/api/my-projects?user_id=${encodeURIComponent(user.id)}`,
+        );
+        if (cancelled) return;
+        setProjects(list);
+        setEngagementId((current) => current ?? list[0]?.engagement_id ?? null);
+      } catch {
+        // Rendered as the same "no projects" empty state below.
+      } finally {
+        if (!cancelled) setProjectsLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id]);
+
+  // Resume the most recent conversation in the SELECTED project on load /
+  // on project switch, instead of always starting blank — a session is only
+  // created lazily on the first message sent if none exists yet.
+  useEffect(() => {
+    if (!engagementId) {
+      if (projectsLoaded) setLoadingHistory(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listSessions(user.id, engagementId);
         if (cancelled) return;
         setSessions(list);
         const mostRecent = list[0];
@@ -225,7 +272,16 @@ function AskProject() {
     return () => {
       cancelled = true;
     };
-  }, [user.id]);
+  }, [user.id, engagementId, projectsLoaded]);
+
+  function handleSelectProject(value: string) {
+    if (value === engagementId) return;
+    setEngagementId(value);
+    setSessionId(null);
+    setMessages([]);
+    setOpenCitation(null);
+    setLoadingHistory(true);
+  }
 
   function handleNewChat() {
     setSessionId(null);
@@ -250,7 +306,7 @@ function AskProject() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const question = draft.trim();
-    if (!question || pending) return;
+    if (!question || pending || !engagementId) return;
 
     setDraft("");
     setMessages((m) => [...m, { role: "user", text: question }]);
@@ -261,7 +317,7 @@ function AskProject() {
       let sid = sessionId;
       const isNewSession = !sid;
       if (!sid) {
-        sid = (await createSession(user.id)).session_id;
+        sid = (await createSession(user.id, engagementId)).session_id;
         setSessionId(sid);
       }
 
@@ -315,6 +371,25 @@ function AskProject() {
     </button>
   );
 
+  // Not assigned anywhere yet — nothing to ask about until an admin adds
+  // this user to a project (Project setup → Team).
+  if (projectsLoaded && projects.length === 0) {
+    return (
+      <AppShell user={user} title="Ask project">
+        <div className="flex flex-1 items-center justify-center p-8">
+          <div className="max-w-[380px] rounded-xl border border-border bg-card p-6 text-center">
+            <MessageSquare className="mx-auto mb-3 size-6 text-mute" />
+            <p className="text-[14px] font-medium text-ink">No project assigned yet</p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-mute">
+              You&apos;ll be able to ask questions here once an admin adds you to a project from
+              Project setup → Team.
+            </p>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell user={user} title="Ask project" padded={false}>
       <div className="flex min-h-0 flex-1">
@@ -329,6 +404,29 @@ function AskProject() {
                 <Plus /> New chat
               </button>
               {sidebarToggle}
+            </div>
+
+            {/* Which project's records this chat answers from — a picker
+                when the user belongs to several, a caption when just one. */}
+            <div className="px-3 pb-2">
+              {projects.length > 1 && engagementId ? (
+                <Select value={engagementId} onValueChange={handleSelectProject}>
+                  <SelectTrigger className="h-8 w-full text-[12px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => (
+                      <SelectItem key={p.engagement_id} value={p.engagement_id}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="truncate text-[11px] text-mute">
+                  {projects.find((p) => p.engagement_id === engagementId)?.name ?? ""}
+                </p>
+              )}
             </div>
 
             <p className="section-label px-3 pb-2">Chat history</p>

@@ -11,6 +11,8 @@ import re
 import time
 
 import asyncio
+from typing import Optional
+
 import asyncpg
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -18,6 +20,7 @@ from sentence_transformers import SentenceTransformer
 from starlette.concurrency import run_in_threadpool
 
 from api import llm, report
+from api.access import require_access
 
 router = APIRouter()
 
@@ -430,6 +433,10 @@ async def run_query(
 class QueryRequest(BaseModel):
     question: str
     engagement_id: str = DEFAULT_ENGAGEMENT_ID
+    # Optional so internal callers (smoke tests, eval) without a user context
+    # keep working; the user-facing chat path (api/sessions.py) always
+    # enforces membership itself, on every message.
+    user_id: Optional[str] = None
 
 
 @router.post("/api/query")
@@ -438,8 +445,12 @@ async def query(req: QueryRequest, request: Request):
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
+    pool = request.app.state.pool
+    if req.user_id is not None:
+        await require_access(pool, req.user_id, req.engagement_id)
+
     return await run_query(
-        pool=request.app.state.pool,
+        pool=pool,
         embedding_model=await ready_model(request),
         llm_providers=request.app.state.llm_providers,
         question=question,

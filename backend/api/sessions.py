@@ -31,6 +31,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from api import llm
+from api.access import require_access
 from api.query import SNIPPET_CHARS, embed, ready_model, run_query, to_pgvector
 
 router = APIRouter()
@@ -47,9 +48,12 @@ HISTORY_MESSAGES = 6
 # cited is unchanged since (public.chunks.updated_at, bumped by live sync).
 CACHE_SIMILARITY = float(os.environ.get("CACHE_SIMILARITY", "0.92"))
 
-# Best past question by this user, paired with the assistant message that
-# directly answered it (LATERAL pins the pairing to the *next* assistant
-# message, not just any later one).
+# Best past question by this user IN THIS PROJECT, paired with the assistant
+# message that directly answered it (LATERAL pins the pairing to the *next*
+# assistant message, not just any later one). Scoping by engagement_id is
+# load-bearing now that users can belong to multiple projects — without it
+# a question asked in project B could be served a cached answer written
+# from project A's corpus, leaking one project's data into another.
 CACHE_LOOKUP_SQL = """
     SELECT a.id AS answer_id, a.content, a.created_at AS answered_at,
            1 - (m.embedding <=> $1::vector) AS sim
@@ -66,6 +70,7 @@ CACHE_LOOKUP_SQL = """
         LIMIT 1
     ) a
     WHERE s.user_id = $2
+      AND s.engagement_id = $3
       AND m.role = 'user'
       AND m.embedding IS NOT NULL
     ORDER BY m.embedding <=> $1::vector
@@ -149,6 +154,7 @@ class NewMessage(BaseModel):
 @router.post("/api/sessions")
 async def create_session(body: NewSession, request: Request):
     pool: asyncpg.Pool = request.app.state.pool
+    await require_access(pool, body.user_id, body.engagement_id)
     row = await pool.fetchrow(
         """
         INSERT INTO zone3.chat_sessions (user_id, engagement_id)
@@ -204,11 +210,11 @@ async def delete_session(session_id: str, user_id: str, request: Request):
     return {"ok": True}
 
 
-async def _lookup_cache(pool, user_id: str, qvec: str) -> dict | None:
+async def _lookup_cache(pool, user_id: str, engagement_id: str, qvec: str) -> dict | None:
     """Reuse a past answer when the question is near-identical AND every chunk
     it cited is unchanged since it was written. Returns a run_query-shaped
     result, or None to run the pipeline fresh."""
-    row = await pool.fetchrow(CACHE_LOOKUP_SQL, qvec, user_id)
+    row = await pool.fetchrow(CACHE_LOOKUP_SQL, qvec, user_id, engagement_id)
     if row is None or row["sim"] < CACHE_SIMILARITY:
         return None
     sources = [dict(s) for s in await pool.fetch(CACHE_SOURCES_SQL, row["answer_id"])]
@@ -311,6 +317,11 @@ async def send_message(session_id: str, body: NewMessage, request: Request):
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Checked on EVERY message, not just at session creation — revoking a
+    # project_members row takes effect on the user's next query, per D6's
+    # "no cache flush or restart" requirement.
+    await require_access(pool, body.user_id, session["engagement_id"])
+
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty")
@@ -347,9 +358,10 @@ async def send_message(session_id: str, body: NewMessage, request: Request):
     model = await ready_model(request)
     qvec = to_pgvector(await run_in_threadpool(embed, model, retrieval_question))
 
-    # 4. Answer cache: same user, near-identical question, cited records
-    #    unchanged since → reuse the stored answer instead of re-retrieving.
-    cached = await _lookup_cache(pool, body.user_id, qvec)
+    # 4. Answer cache: same user, same project, near-identical question,
+    #    cited records unchanged since → reuse the stored answer instead of
+    #    re-retrieving.
+    cached = await _lookup_cache(pool, body.user_id, session["engagement_id"], qvec)
     if cached is not None:
         cached["timing_seconds"] = round(time.perf_counter() - t_start, 3)
         await _save_user_message(pool, session_id, question, qvec)
