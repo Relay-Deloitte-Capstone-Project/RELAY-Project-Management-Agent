@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv('../.env', override=True)
 """Relay backend — FastAPI app hosting the project-knowledge query endpoint."""
 
 import os
@@ -16,8 +18,11 @@ load_dotenv(BACKEND_ENV)
 load_dotenv(ROOT_ENV)
 
 from api.analytics import router as analytics_router  # noqa: E402
-from api.llm import build_providers  # noqa: E402
+from api.handover import router as handover_router  # noqa: E402
+from api.scope import router as scope_router
+from api.llm import build_providers  # noqa: E40
 from api.query import load_embedding_model, router as query_router  # noqa: E402
+
 from api.scratchpad import router as scratchpad_router  # noqa: E402
 from api.sessions import router as sessions_router  # noqa: E402
 
@@ -54,7 +59,8 @@ app = FastAPI(title="Relay Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -63,6 +69,8 @@ app.include_router(query_router)
 app.include_router(sessions_router)
 app.include_router(scratchpad_router)
 app.include_router(analytics_router)
+app.include_router(handover_router)
+app.include_router(scope_router)
 
 
 @app.get("/health")
