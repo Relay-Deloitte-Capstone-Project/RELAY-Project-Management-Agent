@@ -11,6 +11,7 @@ import {
   TicketKey,
 } from "@/components/relay/primitives";
 import { branches } from "@/lib/mockData";
+import { useMyProject } from "@/lib/admin/useMyProject";
 
 export const Route = createFileRoute("/_authenticated/dev/work")({
   head: () => ({
@@ -42,25 +43,33 @@ function ageDays(created: string): number {
 
 function MyWork() {
   const { user } = Route.useRouteContext();
+  const { project } = useMyProject(user.email);
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!project) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/project/tickets?assignee=${encodeURIComponent(user.name)}`);
+        const params = new URLSearchParams({
+          assignee: user.name,
+          engagement_id: project.engagement_id,
+          requester_email: user.email,
+        });
+        const res = await fetch(`${API_URL}/api/project/tickets?${params}`);
         if (!res.ok) throw new Error("Request failed");
         const json: Ticket[] = await res.json();
         if (!cancelled) setTickets(json);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load your tickets.");
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Couldn't load your tickets.");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user.name]);
+  }, [project, user.name, user.email]);
 
   return (
     <AppShell user={user} title="My work">
@@ -146,7 +155,11 @@ function MyWork() {
                     <span className="text-[11px] text-mute">{ageDays(t.created)}d</span>
                     <Chip
                       tone={
-                        t.status === "To Do" ? "warning" : t.status === "In Progress" ? "brand" : "success"
+                        t.status === "To Do"
+                          ? "warning"
+                          : t.status === "In Progress"
+                            ? "brand"
+                            : "success"
                       }
                     >
                       {t.status}

@@ -6,10 +6,26 @@ import { EmployeeBreakdown } from "@/components/relay/EmployeeBreakdown";
 import { MetricCard, PageSection, Panel, ProgressRow } from "@/components/relay/primitives";
 import { SprintBurndown } from "@/components/relay/SprintBurndown";
 import { weeklyActivity as mockWeeklyActivity } from "@/lib/mockData";
+import { useMyProject } from "@/lib/admin/useMyProject";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
-type SprintSummary = { id: number; name: string; state: "active" | "closed" | "future"; start: string; end: string };
+// The one project with a real live Jira connection (backend/api/jira_client.py
+// is a single global connection, not multi-tenant — see api/project.py's
+// module docstring). Sprint burndown/history only exist for that project;
+// every other engagement's manager sees an honest empty state there instead
+// of the real KPD board's sprints leaking through. Must match backend's
+// RELAY_ENGAGEMENT_ID (backend/.env) — the KPD/GitHub connection lives on
+// Acme Data Migration, not a standalone "Apache Kafka" project anymore.
+const LIVE_JIRA_ENGAGEMENT_ID = "acme-data-migration-20d649";
+
+type SprintSummary = {
+  id: number;
+  name: string;
+  state: "active" | "closed" | "future";
+  start: string;
+  end: string;
+};
 
 const sprintStateTone: Record<SprintSummary["state"], string> = {
   active: "bg-success-soft text-success",
@@ -54,11 +70,21 @@ type Summary = {
   };
 };
 type RiskSignal = { level: "high" | "medium" | "low"; title: string; detail: string };
-type Activity = { questions_asked: number; notes_captured: number; tickets_closed_this_week: number | null };
-type SprintHistoryEntry = { id: number; name: string; state: string; completion_pct: number | null };
+type Activity = {
+  questions_asked: number;
+  notes_captured: number;
+  tickets_closed_this_week: number | null;
+};
+type SprintHistoryEntry = {
+  id: number;
+  name: string;
+  state: string;
+  completion_pct: number | null;
+};
 
 function ManagerDashboard() {
   const { user } = Route.useRouteContext();
+  const { project } = useMyProject(user.email);
   const [sprints, setSprints] = useState<SprintSummary[] | null>(null);
   const [selectedSprintId, setSelectedSprintId] = useState<number | null>(null);
 
@@ -68,7 +94,13 @@ function ManagerDashboard() {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [sprintHistory, setSprintHistory] = useState<SprintHistoryEntry[] | null>(null);
 
+  const onLiveJiraProject = project?.engagement_id === LIVE_JIRA_ENGAGEMENT_ID;
+
   useEffect(() => {
+    if (!onLiveJiraProject) {
+      setSprints([]);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -77,7 +109,9 @@ function ManagerDashboard() {
         const json: SprintSummary[] = await res.json();
         if (cancelled) return;
         setSprints(json);
-        setSelectedSprintId((current) => current ?? json.find((s) => s.state === "active")?.id ?? json[0]?.id ?? null);
+        setSelectedSprintId(
+          (current) => current ?? json.find((s) => s.state === "active")?.id ?? json[0]?.id ?? null,
+        );
       } catch {
         // Sprint selector just won't render — the two panels below still
         // fall back to the active sprint on their own.
@@ -86,25 +120,37 @@ function ManagerDashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onLiveJiraProject]);
 
   useEffect(() => {
+    if (!project) return;
     let cancelled = false;
     (async () => {
       try {
-        const [summaryRes, teamRes, riskRes, activityRes, historyRes] = await Promise.all([
-          fetch(`${API_URL}/api/project/summary`),
-          fetch(`${API_URL}/api/project/team`),
-          fetch(`${API_URL}/api/project/risk-signals`),
+        const scope = new URLSearchParams({
+          engagement_id: project.engagement_id,
+          requester_email: user.email,
+        });
+        // Sprint history is a live-Jira-only concept today — every other
+        // engagement has no sprint data, so skip the call rather than show
+        // another project's sprints.
+        const [summaryRes, teamRes, riskRes, activityRes] = await Promise.all([
+          fetch(`${API_URL}/api/project/summary?${scope}`),
+          fetch(`${API_URL}/api/project/team?${scope}`),
+          fetch(`${API_URL}/api/project/risk-signals?${scope}`),
           fetch(`${API_URL}/api/project/activity`),
-          fetch(`${API_URL}/api/project/sprint-history`),
         ]);
         if (cancelled) return;
         if (summaryRes.ok) setSummary(await summaryRes.json());
         if (teamRes.ok) setTeamCount((await teamRes.json()).length);
         if (riskRes.ok) setRiskSignals(await riskRes.json());
         if (activityRes.ok) setActivity(await activityRes.json());
-        if (historyRes.ok) setSprintHistory(await historyRes.json());
+        if (onLiveJiraProject) {
+          const historyRes = await fetch(`${API_URL}/api/project/sprint-history`);
+          if (!cancelled && historyRes.ok) setSprintHistory(await historyRes.json());
+        } else if (!cancelled) {
+          setSprintHistory([]);
+        }
       } catch {
         // Each panel below renders its own "—" placeholder when its slice
         // of this didn't load — no single blocking error state needed.
@@ -113,16 +159,28 @@ function ManagerDashboard() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [project, user.email, onLiveJiraProject]);
 
   const scopeAlerts = summary ? summary.scope.out_of_scope + summary.scope.ambiguous : null;
   const openTickets = summary ? summary.total_issues - (summary.by_status["Done"] ?? 0) : null;
 
   const scopeRows = summary
     ? [
-        { label: "In-scope tickets", value: Math.round((summary.scope.in_scope / summary.total_issues) * 100), tone: "success" as const },
-        { label: "Out-of-scope", value: Math.round((summary.scope.out_of_scope / summary.total_issues) * 100), tone: "danger" as const },
-        { label: "Ambiguous", value: Math.round((summary.scope.ambiguous / summary.total_issues) * 100), tone: "warning" as const },
+        {
+          label: "In-scope tickets",
+          value: Math.round((summary.scope.in_scope / summary.total_issues) * 100),
+          tone: "success" as const,
+        },
+        {
+          label: "Out-of-scope",
+          value: Math.round((summary.scope.out_of_scope / summary.total_issues) * 100),
+          tone: "danger" as const,
+        },
+        {
+          label: "Ambiguous",
+          value: Math.round((summary.scope.ambiguous / summary.total_issues) * 100),
+          tone: "warning" as const,
+        },
       ]
     : [];
 
@@ -132,7 +190,11 @@ function ManagerDashboard() {
         <div className="grid grid-cols-4 gap-3">
           <MetricCard label="Team members" value={teamCount ?? "—"} />
           <MetricCard label="Open tickets" value={openTickets ?? "—"} tone="warning" />
-          <MetricCard label="Ticket coverage" value={summary ? `${summary.scope.coverage_pct}%` : "—"} tone="brand" />
+          <MetricCard
+            label="Ticket coverage"
+            value={summary ? `${summary.scope.coverage_pct}%` : "—"}
+            tone="brand"
+          />
           <MetricCard label="Scope alerts" value={scopeAlerts ?? "—"} tone="danger" />
         </div>
       </PageSection>
@@ -154,7 +216,9 @@ function ManagerDashboard() {
                 {sprint.name}
                 <span
                   className={`rounded-full px-1.5 py-px text-[10px] uppercase tracking-wide ${
-                    selectedSprintId === sprint.id ? "bg-brand-foreground/20 text-brand-foreground" : sprintStateTone[sprint.state]
+                    selectedSprintId === sprint.id
+                      ? "bg-brand-foreground/20 text-brand-foreground"
+                      : sprintStateTone[sprint.state]
                   }`}
                 >
                   {sprint.state}
@@ -203,7 +267,13 @@ function ManagerDashboard() {
               <p className="text-[13px] text-mute">Loading…</p>
             ) : (
               scopeRows.map((row) => (
-                <ProgressRow key={row.label} label={row.label} value={row.value} tone={row.tone} inline />
+                <ProgressRow
+                  key={row.label}
+                  label={row.label}
+                  value={row.value}
+                  tone={row.tone}
+                  inline
+                />
               ))
             )}
           </Panel>
@@ -211,7 +281,9 @@ function ManagerDashboard() {
           <Panel title="Risk signals" icon={<TriangleAlert className="size-3.5 text-mute" />}>
             <div className="flex flex-col gap-2">
               {!riskSignals && <p className="text-[13px] text-mute">Loading…</p>}
-              {riskSignals?.length === 0 && <p className="text-[13px] text-mute">No risk signals right now.</p>}
+              {riskSignals?.length === 0 && (
+                <p className="text-[13px] text-mute">No risk signals right now.</p>
+              )}
               {riskSignals?.map((risk) => (
                 <div key={risk.title} className={`rounded-lg px-3 py-2 ${riskTone[risk.level].bg}`}>
                   <p className={`text-[13px] font-medium ${riskTone[risk.level].text}`}>

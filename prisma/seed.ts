@@ -64,6 +64,20 @@ async function main() {
       initials: "OK",
       avatarColor: "#FFF7ED",
     },
+    {
+      name: "Damon Reyes",
+      email: "damon@relay.dev",
+      role: "DEVELOPER",
+      initials: "DR",
+      avatarColor: "#FEE2E2",
+    },
+    {
+      name: "Alyn Voss",
+      email: "alyn@relay.dev",
+      role: "MANAGER",
+      initials: "AV",
+      avatarColor: "#E0E7FF",
+    },
   ];
 
   // Local demo data, not anything worth preserving across reseeds — wipe and
