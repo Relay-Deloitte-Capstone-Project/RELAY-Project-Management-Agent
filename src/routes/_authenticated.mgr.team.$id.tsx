@@ -45,20 +45,10 @@ export const Route = createFileRoute("/_authenticated/mgr/team/$id")({
 
 const TABS = ["Work state", "Assign handover", "Knowledge risks", "Handover kit"] as const;
 type Tab = (typeof TABS)[number];
-
-const SITUATIONS: { id: HandoverSituation; label: string }[] = [
-  { id: "leave", label: "On leave" },
-  { id: "leaving", label: "Leaving project" },
-  { id: "onboarding", label: "Onboarding kit" },
-];
-
+const SITUATIONS: { id: HandoverSituation; label: string }[] = [{ id: "leave", label: "On leave" }];
 const situationNote: Record<HandoverSituation, (firstName: string) => string> = {
   leave: (name) =>
     `${name} is on leave and expected back — coverage below is temporary. Focus on what needs an owner day-to-day, not a full knowledge transfer.`,
-  leaving: (name) =>
-    `${name} is leaving the project for good — treat the Knowledge risks tab as the priority. Anything unrecoverable there needs a transfer before the last day.`,
-  onboarding: () =>
-    "This page is still a single person's handover. For project-wide onboarding context, go back to Team handover and use the project overview instead.",
 };
 
 const priorityTone: Record<string, "danger" | "warning" | "success" | "neutral"> = {
@@ -79,10 +69,7 @@ function TeamMemberHandover() {
   const { member } = Route.useLoaderData();
   const detail = handoverDetails[member.id];
   const [tab, setTab] = useState<Tab>("Work state");
-  const [situation, setSituation] = useState<HandoverSituation>(
-    member.onLeave ? "leave" : "leaving",
-  );
-
+  const [situation, setSituation] = useState<HandoverSituation>("leave");
   if (!detail) {
     return (
       <AppShell user={user} title={`${member.name} — handover`}>
