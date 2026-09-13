@@ -20,6 +20,7 @@ load_dotenv(ROOT_ENV)
 from api.access import router as access_router  # noqa: E402
 from api.admin_projects import router as admin_projects_router  # noqa: E402
 from api.analytics import router as analytics_router  # noqa: E402
+from api.handover import router as handover_router  # noqa: E402
 from api.llm import build_providers  # noqa: E402
 from api.me import router as me_router  # noqa: E402
 from api.project import router as project_router  # noqa: E402
@@ -119,6 +120,7 @@ app.include_router(sessions_router)
 app.include_router(scratchpad_router)
 app.include_router(analytics_router)
 app.include_router(project_router)
+app.include_router(handover_router)
 app.include_router(sync_router)
 app.include_router(sow_router)
 
