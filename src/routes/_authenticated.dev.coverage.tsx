@@ -11,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useMyProject } from "@/lib/admin/useMyProject";
 
 export const Route = createFileRoute("/_authenticated/dev/coverage")({
   head: () => ({
@@ -45,20 +46,29 @@ type Ticket = { key: string; summary: string; status: string; type: string };
 
 function Coverage() {
   const { user } = Route.useRouteContext();
+  const { project } = useMyProject(user.email);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!project) return;
     let cancelled = false;
     (async () => {
       try {
+        const scope = new URLSearchParams({
+          engagement_id: project.engagement_id,
+          requester_email: user.email,
+        });
         const [summaryRes, ticketsRes] = await Promise.all([
-          fetch(`${API_URL}/api/project/summary`),
-          fetch(`${API_URL}/api/project/tickets?label=unlinked`),
+          fetch(`${API_URL}/api/project/summary?${scope}`),
+          fetch(`${API_URL}/api/project/tickets?label=unlinked&${scope}`),
         ]);
         if (!summaryRes.ok || !ticketsRes.ok) throw new Error("Request failed");
-        const [summaryJson, ticketsJson] = await Promise.all([summaryRes.json(), ticketsRes.json()]);
+        const [summaryJson, ticketsJson] = await Promise.all([
+          summaryRes.json(),
+          ticketsRes.json(),
+        ]);
         if (!cancelled) {
           setSummary(summaryJson);
           setTickets(ticketsJson);
@@ -72,7 +82,7 @@ function Coverage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [project, user.email]);
 
   const linked = summary ? summary.total_issues - summary.scope.unlinked : null;
 
@@ -92,7 +102,11 @@ function Coverage() {
       <PageSection label="At a glance">
         <div className="grid grid-cols-3 gap-3">
           <MetricCard label="Linked tickets" value={linked ?? "—"} tone="success" />
-          <MetricCard label="Unlinked tickets" value={summary?.scope.unlinked ?? "—"} tone="danger" />
+          <MetricCard
+            label="Unlinked tickets"
+            value={summary?.scope.unlinked ?? "—"}
+            tone="danger"
+          />
           <MetricCard label="Secrets found in history" value={4} tone="warning" />
         </div>
       </PageSection>
@@ -149,8 +163,8 @@ function Coverage() {
         <Panel>
           <p className="text-[13px] leading-relaxed text-mute">
             Linkage reflects Jira's own <code>unlinked</code> label on each ticket — it is not
-            self-reported. A ticket with no linked commit is not necessarily unfinished, but it means
-            there is no independent record of the work.
+            self-reported. A ticket with no linked commit is not necessarily unfinished, but it
+            means there is no independent record of the work.
           </p>
         </Panel>
       </PageSection>

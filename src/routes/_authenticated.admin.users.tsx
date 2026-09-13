@@ -10,7 +10,7 @@ import {
   PageSection,
   Panel,
 } from "@/components/relay/primitives";
-import { listAppUsers } from "@/lib/admin/functions";
+import { createAppUser, listAppUsers } from "@/lib/admin/functions";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -74,73 +74,74 @@ function AllUsers() {
   const { user } = Route.useRouteContext();
   const [users, setUsers] = useState<AppUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [invited, setInvited] = useState<AppUser[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteName, setInviteName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("Developer");
-  const [sentInvite, setSentInvite] = useState<{ email: string } | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
+  const [sentInvite, setSentInvite] = useState<{ email: string; tempPassword: string } | null>(
+    null,
+  );
   const [copied, setCopied] = useState(false);
+
+  function loadUsers() {
+    return listAppUsers().then((data) => setUsers(data));
+  }
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const data = await listAppUsers();
-        if (!cancelled) setUsers(data);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Couldn't load users.");
-        }
-      }
-    })();
+    loadUsers().catch((err) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load users.");
+    });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const allRows = users ? [...users, ...invited] : null;
-  const activeCount = allRows?.filter((u) => u.status === "Active").length ?? 0;
-  const inactiveCount = allRows ? allRows.length - activeCount : 0;
+  const activeCount = users?.filter((u) => u.status === "Active").length ?? 0;
+  const inactiveCount = users ? users.length - activeCount : 0;
 
-  function initialsOf(name: string) {
-    return name
-      .split(" ")
-      .map((p) => p[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  }
-
-  function sendInvite() {
+  async function sendInvite() {
     if (!inviteName.trim() || !inviteEmail.trim()) return;
-    const newUser: AppUser = {
-      name: inviteName.trim(),
-      initials: initialsOf(inviteName.trim()),
-      email: inviteEmail.trim(),
-      role: inviteRole,
-      project: "Relay-Deloitte Capstone",
-      status: "Active",
-      lastSeen: new Date().toISOString(),
-    };
-    setInvited((prev) => [...prev, newUser]);
-    setSentInvite({ email: newUser.email });
-    setInviteName("");
-    setInviteEmail("");
-    setInviteRole("Developer");
-    setCopied(false);
+    setInviting(true);
+    setInviteError(null);
+    try {
+      const { user: created, tempPassword } = await createAppUser({
+        data: {
+          name: inviteName.trim(),
+          email: inviteEmail.trim(),
+          role: inviteRole.toUpperCase(),
+        },
+      });
+      setUsers((prev) =>
+        prev ? [...prev, created].sort((a, b) => a.name.localeCompare(b.name)) : [created],
+      );
+      setSentInvite({ email: created.email, tempPassword });
+      setInviteName("");
+      setInviteEmail("");
+      setInviteRole("Developer");
+      setCopied(false);
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : "Couldn't create this user.");
+    } finally {
+      setInviting(false);
+    }
   }
 
   function closeInvite(open: boolean) {
     setInviteOpen(open);
-    if (!open) setSentInvite(null);
+    if (!open) {
+      setSentInvite(null);
+      setInviteError(null);
+    }
   }
 
   return (
     <AppShell user={user} title="All users">
       <PageSection label="Users" subtitle="Real accounts in this Relay workspace.">
         <div className="mb-3 grid grid-cols-3 gap-3">
-          <MetricCard label="Total users" value={allRows?.length ?? "—"} />
+          <MetricCard label="Total users" value={users?.length ?? "—"} />
           <MetricCard label="Active (7d)" value={activeCount || "—"} tone="success" />
           <MetricCard label="Inactive" value={inactiveCount} tone="neutral" />
         </div>
@@ -181,14 +182,18 @@ function AllUsers() {
                         <SelectItem value="Admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
+                    {inviteError && (
+                      <span className="text-[12px] font-medium text-danger">{inviteError}</span>
+                    )}
                   </div>
                   <DialogFooter>
                     <GhostButton
                       tone="brand"
                       onClick={sendInvite}
-                      disabled={!inviteName.trim() || !inviteEmail.trim()}
+                      disabled={!inviteName.trim() || !inviteEmail.trim() || inviting}
                     >
-                      Send invite
+                      {inviting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                      {inviting ? "Creating…" : "Send invite"}
                     </GhostButton>
                   </DialogFooter>
                 </>
@@ -196,11 +201,12 @@ function AllUsers() {
                 <>
                   <DialogHeader>
                     <DialogTitle className="text-[14px] flex items-center gap-1.5">
-                      <Check className="size-4 text-success" /> Invite sent
+                      <Check className="size-4 text-success" /> User created
                     </DialogTitle>
                     <DialogDescription className="text-[13px]">
-                      Temporary password: <span className="font-mono text-ink">relay2026</span> — no
-                      email is actually sent in this demo.
+                      Saved to the database and ready to sign in. Temporary password:{" "}
+                      <span className="font-mono text-ink">{sentInvite.tempPassword}</span> — share
+                      it now, it won't be shown again. No email is actually sent in this demo.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="flex items-center gap-2 rounded-md bg-surface-sunken px-3 py-2">
@@ -210,7 +216,9 @@ function AllUsers() {
                     <button
                       type="button"
                       onClick={() => {
-                        navigator.clipboard?.writeText(sentInvite.email).catch(() => {});
+                        navigator.clipboard
+                          ?.writeText(`${sentInvite.email} / ${sentInvite.tempPassword}`)
+                          .catch(() => {});
                         setCopied(true);
                       }}
                       className="text-mute hover:text-ink"

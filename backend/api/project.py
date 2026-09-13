@@ -1,13 +1,23 @@
-"""Project-wide (not sprint-scoped) real Jira metrics for the Developer,
+"""Project-wide (not sprint-scoped) ticket metrics for the Developer,
 Manager and Admin dashboards — GET /api/project/*.
 
-Everything here reads live from the KPD project. `_all_issues()` pulls the
-whole project (249 issues today) in a couple of paginated calls and most
-endpoints derive their numbers from that same in-memory set with plain
-Python filtering — deliberately not JQL string-building per query param,
-which would mean interpolating user-supplied filter values into a JQL
-string. `/api/analytics/*` (sprint-scoped) is the sibling module this
-complements; that one stays sprint-scoped, this one is project-wide.
+Exactly one project in this whole app has a real live Jira connection
+(api/jira_client.py — a single globally-configured client, not multi-tenant)
+and it's always the one at LIVE_JIRA_ENGAGEMENT_ID (the real KPD Jira board,
+which lives on the Acme Data Migration engagement — there's no standalone
+"Apache Kafka" project anymore). Every other engagement has no live
+Jira/GitHub integration wired up at all, so its ticket/commit data lives directly in
+public.project_tickets / public.project_commits instead (see
+database/project_workspace_data.sql) — realistic internal tracking data,
+not a fake external Jira/GitHub link pretending to be a real connection.
+
+`_load_issues()` is the one place that decides which source to read from
+and normalizes both into the same flat shape, so every endpoint below
+doesn't need to know or care which project it's looking at. Callers that
+pass `engagement_id` + `requester_email` get that project's real data (with
+a membership check against public.project_members — see api/access.py);
+callers that omit `engagement_id` keep hitting the original single live-Jira
+project, unchanged, for backward compatibility.
 """
 
 from __future__ import annotations
@@ -19,7 +29,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from api import jira_client
+from api import access, jira_client
 
 router = APIRouter()
 
@@ -27,6 +37,8 @@ ISSUE_FIELDS = "status,issuetype,assignee,labels,parent,summary,priority,created
 
 DONE_CATEGORY = "Done"
 IN_PROGRESS_CATEGORY = "In Progress"
+
+LIVE_JIRA_ENGAGEMENT_ID = os.environ.get("RELAY_ENGAGEMENT_ID", "proj-001")
 
 # Labels this project's seed data uses as real scope/status markers — not a
 # Jira-native concept, just labels this team applies, but genuinely real.
@@ -39,7 +51,7 @@ def _require_configured():
 
 
 def _status_category(issue: dict) -> str:
-    return issue["fields"]["status"]["statusCategory"]["name"]
+    return issue["status_category"]
 
 
 def _parse(ts: str) -> datetime:
@@ -50,34 +62,99 @@ def _parse(ts: str) -> datetime:
 
 
 def _ticket_dict(issue: dict) -> dict:
+    return {
+        "key": issue["key"],
+        "summary": issue["summary"],
+        "status": issue["status"],
+        "type": issue["type"],
+        "priority": issue["priority"],
+        "assignee": issue["assignee"],
+        "created": issue["created"],
+    }
+
+
+def _normalize_live(issue: dict) -> dict:
     f = issue["fields"]
     return {
         "key": issue["key"],
         "summary": f.get("summary"),
         "status": f["status"]["name"],
+        "status_category": f["status"]["statusCategory"]["name"],
         "type": f["issuetype"]["name"],
         "priority": (f.get("priority") or {}).get("name"),
         "assignee": (f.get("assignee") or {}).get("displayName"),
+        "assignee_email": (f.get("assignee") or {}).get("emailAddress"),
         "created": f.get("created"),
+        "labels": f.get("labels") or [],
+        "epic_key": (f.get("parent") or {}).get("key"),
     }
 
 
-async def _all_issues() -> list:
-    return await jira_client.search_issues(f"project={jira_client.PROJECT_KEY}", ISSUE_FIELDS, max_results=100)
+def _normalize_mock(row) -> dict:
+    created = row["created_at"]
+    return {
+        "key": row["ticket_key"],
+        "summary": row["summary"],
+        # Mock rows have no separate "raw status" vs "category" distinction
+        # the way Jira does (e.g. "Backlog" -> category "To Do") — the
+        # stored status IS the category.
+        "status": row["status"],
+        "status_category": row["status"],
+        "type": row["issue_type"],
+        "priority": row["priority"],
+        "assignee": row["assignee_name"],
+        "assignee_email": row["assignee_email"],
+        "created": created.isoformat() if hasattr(created, "isoformat") else created,
+        "labels": list(row["labels"] or []),
+        "epic_key": row["epic_key"],
+    }
+
+
+async def _mock_rows(request: Request, engagement_id: str) -> list:
+    pool = request.app.state.pool
+    rows = await pool.fetch(
+        """
+        SELECT ticket_key, summary, issue_type, status, priority, assignee_name,
+               assignee_email, epic_key, labels, created_at
+        FROM public.project_tickets
+        WHERE engagement_id = $1
+        ORDER BY created_at
+        """,
+        engagement_id,
+    )
+    return [_normalize_mock(r) for r in rows]
+
+
+async def _all_issues(
+    request: Request,
+    engagement_id: Optional[str] = None,
+    requester_email: Optional[str] = None,
+) -> list:
+    if engagement_id and engagement_id != LIVE_JIRA_ENGAGEMENT_ID:
+        if requester_email:
+            await access.require_member(request.app.state.pool, requester_email, engagement_id)
+        return await _mock_rows(request, engagement_id)
+
+    _require_configured()
+    issues = await jira_client.search_issues(f"project={jira_client.PROJECT_KEY}", ISSUE_FIELDS, max_results=100)
+    return [_normalize_live(i) for i in issues]
 
 
 @router.get("/api/project/summary")
-async def summary():
-    _require_configured()
-    issues = await _all_issues()
+async def summary(
+    request: Request,
+    engagement_id: Optional[str] = Query(default=None),
+    requester_email: Optional[str] = Query(default=None),
+):
+    issues = await _all_issues(request, engagement_id, requester_email)
     total = len(issues)
 
     by_status = Counter(_status_category(i) for i in issues)
-    by_type = Counter(i["fields"]["issuetype"]["name"] for i in issues)
+    by_type = Counter(i["type"] for i in issues)
 
     label_counts: Counter = Counter()
     for i in issues:
-        for label in i["fields"].get("labels") or []:
+        for label in i["labels"]:
             label_counts[label] += 1
 
     unlinked = label_counts.get("unlinked", 0)
@@ -86,7 +163,7 @@ async def summary():
     blocked = label_counts.get("blocked", 0)
     reopened = label_counts.get("reopened", 0)
 
-    unassigned = sum(1 for i in issues if not i["fields"].get("assignee"))
+    unassigned = sum(1 for i in issues if not i["assignee"])
     bugs = by_type.get("Bug", 0)
 
     # Domain labels (security/ingestion/retrieval/...) — everything that
@@ -116,61 +193,93 @@ async def summary():
     }
 
 
-@router.get("/api/project/team")
-async def team():
-    _require_configured()
-    users = await jira_client.assignable_users()
-    issues = await _all_issues()
-
-    counts = {u["displayName"]: {"to_do": 0, "in_progress": 0, "done": 0} for u in users}
+def _bucket_counts(issues: list) -> dict:
+    counts: dict = {}
     for i in issues:
-        assignee = i["fields"].get("assignee")
+        assignee = i["assignee"]
         if not assignee:
             continue
-        bucket = counts.setdefault(assignee["displayName"], {"to_do": 0, "in_progress": 0, "done": 0})
-        category = _status_category(i)
+        bucket = counts.setdefault(assignee, {"to_do": 0, "in_progress": 0, "done": 0})
+        category = i["status_category"]
         if category == DONE_CATEGORY:
             bucket["done"] += 1
         elif category == IN_PROGRESS_CATEGORY:
             bucket["in_progress"] += 1
         else:
             bucket["to_do"] += 1
+    return counts
 
+
+@router.get("/api/project/team")
+async def team(
+    request: Request,
+    engagement_id: Optional[str] = Query(default=None),
+    requester_email: Optional[str] = Query(default=None),
+):
+    if engagement_id and engagement_id != LIVE_JIRA_ENGAGEMENT_ID:
+        if requester_email:
+            await access.require_member(request.app.state.pool, requester_email, engagement_id)
+        pool = request.app.state.pool
+        members = await pool.fetch(
+            "SELECT name, email FROM public.project_members WHERE engagement_id = $1 ORDER BY assigned_at",
+            engagement_id,
+        )
+        issues = await _mock_rows(request, engagement_id)
+        counts = _bucket_counts(issues)
+        empty = {"to_do": 0, "in_progress": 0, "done": 0}
+        return [
+            {
+                "account_id": m["email"],
+                "name": m["name"],
+                "email": m["email"],
+                **counts.get(m["name"], empty),
+            }
+            for m in members
+        ]
+
+    _require_configured()
+    users = await jira_client.assignable_users()
+    issues = await _all_issues(request)
+    counts = _bucket_counts(issues)
+    empty = {"to_do": 0, "in_progress": 0, "done": 0}
     return [
         {
             "account_id": u["accountId"],
             "name": u["displayName"],
             "email": u.get("emailAddress"),
-            **counts.get(u["displayName"], {"to_do": 0, "in_progress": 0, "done": 0}),
+            **counts.get(u["displayName"], empty),
         }
         for u in users
     ]
 
 
 @router.get("/api/project/epics")
-async def epics():
-    _require_configured()
-    issues = await _all_issues()
-    epic_issues = [i for i in issues if i["fields"]["issuetype"]["name"] == "Epic"]
+async def epics(
+    request: Request,
+    engagement_id: Optional[str] = Query(default=None),
+    requester_email: Optional[str] = Query(default=None),
+):
+    issues = await _all_issues(request, engagement_id, requester_email)
+    epic_issues = [i for i in issues if i["type"] == "Epic"]
 
     children_by_epic: dict = {}
     for i in issues:
-        parent = i["fields"].get("parent")
+        parent = i["epic_key"]
         if parent:
-            children_by_epic.setdefault(parent["key"], []).append(i)
+            children_by_epic.setdefault(parent, []).append(i)
 
     out_of_scope_labels = {"out-of-scope", "ambiguous"}
     result = []
     for epic in epic_issues:
         children = children_by_epic.get(epic["key"], [])
         n = len(children)
-        done = sum(1 for c in children if _status_category(c) == DONE_CATEGORY)
-        compliant = sum(1 for c in children if not (set(c["fields"].get("labels") or []) & out_of_scope_labels))
+        done = sum(1 for c in children if c["status_category"] == DONE_CATEGORY)
+        compliant = sum(1 for c in children if not (set(c["labels"]) & out_of_scope_labels))
         result.append(
             {
                 "key": epic["key"],
-                "title": epic["fields"].get("summary"),
-                "status": epic["fields"]["status"]["name"],
+                "title": epic["summary"],
+                "status": epic["status"],
                 "ticket_count": n,
                 "completion_pct": round(done / n * 100, 1) if n else 0,
                 "scope_compliance_pct": round(compliant / n * 100, 1) if n else 0,
@@ -205,31 +314,36 @@ async def sprint_history():
 
 @router.get("/api/project/tickets")
 async def tickets(
+    request: Request,
     label: Optional[str] = Query(default=None),
     assignee: Optional[str] = Query(default=None),
     epic: Optional[str] = Query(default=None),
+    engagement_id: Optional[str] = Query(default=None),
+    requester_email: Optional[str] = Query(default=None),
 ):
-    _require_configured()
-    issues = await _all_issues()
+    issues = await _all_issues(request, engagement_id, requester_email)
     if label:
-        issues = [i for i in issues if label in (i["fields"].get("labels") or [])]
+        issues = [i for i in issues if label in i["labels"]]
     if assignee:
-        issues = [i for i in issues if (i["fields"].get("assignee") or {}).get("displayName") == assignee]
+        issues = [i for i in issues if i["assignee"] == assignee]
     if epic:
-        issues = [i for i in issues if (i["fields"].get("parent") or {}).get("key") == epic]
+        issues = [i for i in issues if i["epic_key"] == epic]
     return [_ticket_dict(i) for i in issues]
 
 
 @router.get("/api/project/risk-signals")
-async def risk_signals():
-    _require_configured()
-    issues = await _all_issues()
+async def risk_signals(
+    request: Request,
+    engagement_id: Optional[str] = Query(default=None),
+    requester_email: Optional[str] = Query(default=None),
+):
+    issues = await _all_issues(request, engagement_id, requester_email)
 
     label_counts: Counter = Counter()
     for i in issues:
-        for label in i["fields"].get("labels") or []:
+        for label in i["labels"]:
             label_counts[label] += 1
-    unassigned = sum(1 for i in issues if not i["fields"].get("assignee"))
+    unassigned = sum(1 for i in issues if not i["assignee"])
 
     signals = []
     if label_counts.get("out-of-scope"):
@@ -289,7 +403,7 @@ async def activity(request: Request):
     # api/analytics.py's burndown caveat for why (bulk-seeded, not organic).
     tickets_closed_this_week = None
     if jira_client.configured():
-        issues = await _all_issues()
+        issues = await _all_issues(request)
         done_keys = [i["key"] for i in issues if _status_category(i) == DONE_CATEGORY]
         changelogs = await jira_client.issue_status_changelogs(done_keys)
         cutoff = datetime.now(timezone.utc) - timedelta(days=7)

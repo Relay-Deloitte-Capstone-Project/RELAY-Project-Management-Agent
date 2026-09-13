@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { AppShell } from "@/components/relay/AppShell";
+import { useMyProject } from "@/lib/admin/useMyProject";
 
 export const Route = createFileRoute("/_authenticated/dev/ask")({
   head: () => ({
@@ -25,10 +26,6 @@ export const Route = createFileRoute("/_authenticated/dev/ask")({
 // The FastAPI backend (backend/main.py) — override with VITE_ASK_API_URL if it's
 // running somewhere other than the default local port.
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
-
-// The corpus this backend serves is all under this engagement — matches the
-// backend's own RELAY_ENGAGEMENT_ID default (backend/api/query.py).
-const ENGAGEMENT_ID = "proj-001";
 
 type Source = {
   source_doc_id: string;
@@ -84,16 +81,16 @@ async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-function listSessions(userId: string) {
+function listSessions(userId: string, engagementId: string) {
   return apiCall<SessionSummary[]>(
-    `/api/sessions?user_id=${encodeURIComponent(userId)}&engagement_id=${ENGAGEMENT_ID}`,
+    `/api/sessions?user_id=${encodeURIComponent(userId)}&engagement_id=${encodeURIComponent(engagementId)}`,
   );
 }
 
-function createSession(userId: string) {
+function createSession(userId: string, engagementId: string) {
   return apiCall<{ session_id: string; created_at: string }>("/api/sessions", {
     method: "POST",
-    body: JSON.stringify({ user_id: userId, engagement_id: ENGAGEMENT_ID }),
+    body: JSON.stringify({ user_id: userId, engagement_id: engagementId }),
   });
 }
 
@@ -118,6 +115,7 @@ function storedToMessage(m: StoredMessage): Message {
 
 function AskProject() {
   const { user } = Route.useRouteContext();
+  const { project, loading: loadingProject, error: projectError } = useMyProject(user.email);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [openCitation, setOpenCitation] = useState<string | null>(null);
@@ -127,12 +125,15 @@ function AskProject() {
 
   // Resume the most recent conversation on load instead of always starting
   // blank — a session is only created lazily on the first message sent if
-  // none exists yet.
+  // none exists yet. Waits on project resolution first: which engagement
+  // this conversation is scoped to depends on which project this person is
+  // actually staffed on (public.project_members), not a shared constant.
   useEffect(() => {
+    if (!project) return;
     let cancelled = false;
     (async () => {
       try {
-        const sessions = await listSessions(user.id);
+        const sessions = await listSessions(user.id, project.engagement_id);
         const mostRecent = sessions[0];
         if (!mostRecent || cancelled) return;
 
@@ -149,12 +150,12 @@ function AskProject() {
     return () => {
       cancelled = true;
     };
-  }, [user.id]);
+  }, [user.id, project]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const question = draft.trim();
-    if (!question || pending) return;
+    if (!question || pending || !project) return;
 
     setDraft("");
     setMessages((m) => [...m, { role: "user", text: question }]);
@@ -164,7 +165,7 @@ function AskProject() {
     try {
       let sid = sessionId;
       if (!sid) {
-        sid = (await createSession(user.id)).session_id;
+        sid = (await createSession(user.id, project.engagement_id)).session_id;
         setSessionId(sid);
       }
 
@@ -200,9 +201,26 @@ function AskProject() {
   return (
     <AppShell user={user} title="Ask project" padded={false}>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6">
-        <p className="section-label">Conversation · grounded in this project&apos;s records</p>
+        <p className="section-label">
+          Conversation · grounded in {project ? `${project.name}'s` : "this project's"} records
+        </p>
 
-        {loadingHistory ? (
+        {projectError && (
+          <div className="max-w-[80%] rounded-lg border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-[13px] text-destructive">
+            {projectError}
+          </div>
+        )}
+        {!loadingProject && !project && !projectError && (
+          <div className="max-w-[80%] rounded-lg border border-border bg-surface-sunken px-3.5 py-2.5 text-[13px] text-mute">
+            You're not staffed on a project yet — ask an admin to add you.
+          </div>
+        )}
+
+        {loadingProject ? (
+          <div className="flex max-w-[80%] items-center gap-2 rounded-lg border border-border bg-surface-sunken px-3.5 py-2.5 text-[13px] text-mute">
+            <Loader2 className="size-3.5 animate-spin" /> Finding your project…
+          </div>
+        ) : loadingHistory && project ? (
           <div className="flex max-w-[80%] items-center gap-2 rounded-lg border border-border bg-surface-sunken px-3.5 py-2.5 text-[13px] text-mute">
             <Loader2 className="size-3.5 animate-spin" /> Loading conversation…
           </div>
@@ -310,12 +328,12 @@ function AskProject() {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Ask anything about this project..."
-          disabled={pending}
+          disabled={pending || !project}
           className="h-9 flex-grow rounded-md border border-border bg-card px-3 text-[13px] text-ink outline-none transition-colors duration-150 placeholder:text-mute focus:border-brand disabled:opacity-60"
         />
         <button
           type="submit"
-          disabled={pending || !draft.trim()}
+          disabled={pending || !draft.trim() || !project}
           className="inline-flex h-9 items-center gap-1.5 rounded-md bg-brand px-3.5 text-[13px] font-medium text-brand-foreground transition-transform duration-100 active:scale-[0.98] disabled:opacity-50 [&_svg]:size-3.5"
         >
           Send <ArrowRight />
