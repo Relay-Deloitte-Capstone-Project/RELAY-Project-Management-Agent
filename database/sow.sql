@@ -80,9 +80,11 @@ CREATE INDEX IF NOT EXISTS idx_sow_deliverables_engagement
     ON public.sow_deliverables (engagement_id);
 
 -- Widen chunks to accept SOW content alongside Jira/GitHub/Confluence.
+-- 'project_overview' is already live in production chunks — dropping it here
+-- makes the ADD CONSTRAINT fail on those rows.
 ALTER TABLE public.chunks DROP CONSTRAINT IF EXISTS chunks_source_type_check;
 ALTER TABLE public.chunks ADD CONSTRAINT chunks_source_type_check
-    CHECK (source_type IN ('jira_ticket', 'github_commit', 'github_pr', 'confluence_doc', 'sow_document'));
+    CHECK (source_type IN ('jira_ticket', 'github_commit', 'github_pr', 'confluence_doc', 'project_overview', 'sow_document'));
 
 -- ingestion_logs from TASK_admin_panel.md — never migrated into the real DB
 -- either. The SOW pipeline writes here on both success and failure so
