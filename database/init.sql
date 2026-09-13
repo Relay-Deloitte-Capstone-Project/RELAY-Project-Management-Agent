@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     engagement_id TEXT NOT NULL,
-    source_type TEXT NOT NULL CHECK (source_type IN ('jira_ticket', 'github_commit', 'github_pr', 'confluence_doc')),
+    source_type TEXT NOT NULL CHECK (source_type IN ('jira_ticket', 'github_commit', 'github_pr', 'confluence_doc', 'project_overview')),
     source_doc_id TEXT NOT NULL,
     content TEXT NOT NULL,
     metadata JSONB NOT NULL DEFAULT '{}',

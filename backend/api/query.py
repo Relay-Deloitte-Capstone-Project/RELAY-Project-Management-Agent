@@ -5,9 +5,13 @@ api/sessions.py (which saves the question/answer to zone3.chat_messages
 alongside running it) without duplicating this logic.
 """
 
+import json
 import os
 import re
 import time
+
+import asyncio
+from typing import Optional
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Request
@@ -16,6 +20,7 @@ from sentence_transformers import SentenceTransformer
 from starlette.concurrency import run_in_threadpool
 
 from api import llm, report
+from api.access import require_access
 
 router = APIRouter()
 
@@ -28,7 +33,7 @@ THRESHOLD = 0.65
 # single chunk's length, since this corpus has many near-duplicate tickets for
 # the same underlying issue (different repro notes, follow-ups, sprint context)
 # that combine into a fuller picture.
-TOP_K = 5
+TOP_K = 8
 
 # Characters of chunk text given to the LLM / returned to the caller.
 CONTEXT_CHARS = 500
@@ -87,17 +92,27 @@ how it was resolved). Synthesize them into one coherent, descriptive answer
 instead of restating a single ticket title — explain what the problem was, why
 it happened or mattered, and what changed, when the context supports it.
 Cite the source ID inline in square brackets right after each claim it comes
-from, like [KPD-239] — every factual claim should trace to a citation.
+from, like [KPD-239] or [467d828] for a commit — cite ONLY the sources you
+actually used, never every source you were shown.
 If the context doesn't answer the question, say so plainly instead of guessing.
-Write in plain flowing prose, 3-6 sentences — no markdown, no bullet points,
-no headers, no bold text, since this renders as plain text in a chat bubble.
-
+If the question isn't about this project (general coding help, trivia,
+small talk), decline in one sentence and do not cite anything.
+Write plain text — no markdown headers, no bold. Short flowing paragraphs by
+default; if the question asks for a list or comparison, a compact list with
+one "- " item per line is fine.
+{style}
+{history_block}
 CONTEXT:
 {context}
 
 QUESTION: {question}
 
 ANSWER:"""
+
+HISTORY_BLOCK_TEMPLATE = """
+CONVERSATION SO FAR (for context only — answer the QUESTION, not these):
+{history}
+"""
 
 SUMMARIZE_PROMPT_TEMPLATE = """You are a project knowledge assistant. Summarize the following
 ticket for a teammate in plain flowing prose, 2-4 sentences — no markdown, no bullet points,
@@ -115,6 +130,19 @@ def load_embedding_model() -> SentenceTransformer:
     return SentenceTransformer(EMBEDDING_MODEL)
 
 
+async def ready_model(request: Request) -> SentenceTransformer:
+    """Wait for the background-loaded embedding model (see main.lifespan).
+    Chat answers need it; /health and non-RAG routes never touch this."""
+    try:
+        await asyncio.wait_for(request.app.state.model_ready.wait(), timeout=180)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="Model is still loading, retry shortly")
+    model = request.app.state.embedding_model
+    if model is None:
+        raise HTTPException(status_code=503, detail="Embedding model failed to load")
+    return model
+
+
 def embed(model: SentenceTransformer, text: str) -> list:
     return model.encode([text], normalize_embeddings=True)[0].tolist()
 
@@ -124,10 +152,24 @@ def to_pgvector(vec: list) -> str:
     return "[" + ",".join(repr(float(x)) for x in vec) + "]"
 
 
+def _cite_id(r: dict) -> str:
+    """The id the model is told to cite: ticket key, or short sha for commits
+    (a 40-char SHA inline ruined the prose and duplicated the citation chip)."""
+    if r["source_type"] == "github_commit":
+        meta = r.get("metadata") or {}
+        if isinstance(meta, str):  # asyncpg returns jsonb as a raw string
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        return meta.get("sha_short") or r["source_doc_id"][:7]
+    return r["source_doc_id"]
+
+
 def build_context(results: list) -> str:
     return "\n\n".join(
         "[{doc}] ({kind}): {text}".format(
-            doc=r["source_doc_id"],
+            doc=_cite_id(r),
             kind=r["source_type"],
             text=r["content"][:CONTEXT_CHARS],
         )
@@ -143,16 +185,18 @@ def filter_cited_sources(answer: str, results: list) -> list:
     A refusal (e.g. to a prompt-injection attempt) cites nothing, so this
     naturally drops every source from a response like that instead of
     reporting sources the final answer never actually drew on.
+
+    Matches the ticket key, the short sha shown in the context, or the full
+    sha — the model doesn't always follow the prompt's exact id form,
+    especially with long commit-SHA ids, and a strict match was silently
+    dropping real citations (0 sources on an answer that visibly cited one).
     """
-    # \s* tolerates "[ id ]" — the model doesn't always follow the prompt's
-    # exact "[KPD-239]" spacing, especially with long commit-SHA ids, and a
-    # strict match was silently dropping real citations (0 sources on an
-    # answer that visibly cited one).
-    return [
-        r
-        for r in results
-        if re.search(r"\[\s*{}\s*\]".format(re.escape(r["source_doc_id"])), answer)
-    ]
+    cited = []
+    for r in results:
+        ids = {r["source_doc_id"], _cite_id(r)}
+        if any(re.search(r"\[\s*{}\s*\]".format(re.escape(i)), answer) for i in ids):
+            cited.append(r)
+    return cited
 
 
 def extract_summarize_ticket(question: str):
@@ -182,8 +226,15 @@ async def run_query(
     llm_providers: list,
     question: str,
     engagement_id: str,
+    history: list | None = None,
+    user_name: str | None = None,
 ) -> dict:
-    """The full pipeline: summarize-shortcut or embed→search→threshold→answer.
+    """The full pipeline: intent-routed structured answers, the summarize
+    shortcut, or embed→search→threshold→answer.
+
+    `history` is the session's recent messages ([{role, content}, ...]) for
+    conversational context — api/sessions.py passes it; POST /api/query
+    leaves it empty.
 
     Returns the same shape POST /api/query responds with (answer, sources,
     abstained, provider, timing_seconds) — callers that also want to persist
@@ -192,6 +243,37 @@ async def run_query(
     """
     t_start = time.perf_counter()
     timings = {}
+
+    # Structured intents (sprint lookup, recent-activity digest, project
+    # overview, live code diff) bypass vector search entirely — their answers
+    # come from ordered/live records, not nearest neighbors. Imported lazily
+    # because intents.py imports nothing from this module at call time only.
+    from api import intents
+
+    t0 = time.perf_counter()
+    intent_result = await intents.maybe_handle(
+        pool=pool,
+        question=question,
+        engagement_id=engagement_id,
+        llm_providers=llm_providers,
+        ctx={"CONTEXT_CHARS": CONTEXT_CHARS, "SNIPPET_CHARS": SNIPPET_CHARS},
+        user_name=user_name,
+    )
+    timings["intent"] = time.perf_counter() - t0
+    if intent_result is not None:
+        timings["total"] = time.perf_counter() - t_start
+        report.write_report(
+            question=question,
+            engagement_id=engagement_id,
+            abstained=intent_result["abstained"],
+            top_score=None,
+            provider=intent_result.get("provider"),
+            answer=intent_result["answer"],
+            sources=intent_result["sources"],
+            timings=timings,
+        )
+        intent_result["timing_seconds"] = round(timings["total"], 3)
+        return intent_result
 
     # Shortcut — "Summarize KPD-33": skip embedding/vector search and fetch
     # that one ticket directly, so the answer is grounded in exactly the
@@ -299,8 +381,21 @@ async def run_query(
     results = [r for r in results if r["score"] >= THRESHOLD]
 
     # Step 4 — cited answer from the retrieved context only.
+    history_block = ""
+    if history:
+        lines = [
+            "{}: {}".format("Teammate" if m["role"] == "user" else "Assistant", m["content"][:400])
+            for m in history[-4:]
+        ]
+        history_block = HISTORY_BLOCK_TEMPLATE.format(history="\n".join(lines))
+
     t0 = time.perf_counter()
-    prompt = PROMPT_TEMPLATE.format(context=build_context(results), question=question)
+    prompt = PROMPT_TEMPLATE.format(
+        context=build_context(results),
+        question=question,
+        history_block=history_block,
+        style=intents.depth_directive(question),
+    )
     try:
         answer, provider_used = await llm.generate_answer(llm_providers, prompt)
     except Exception as exc:
@@ -338,6 +433,10 @@ async def run_query(
 class QueryRequest(BaseModel):
     question: str
     engagement_id: str = DEFAULT_ENGAGEMENT_ID
+    # Optional so internal callers (smoke tests, eval) without a user context
+    # keep working; the user-facing chat path (api/sessions.py) always
+    # enforces membership itself, on every message.
+    user_id: Optional[str] = None
 
 
 @router.post("/api/query")
@@ -346,9 +445,13 @@ async def query(req: QueryRequest, request: Request):
     if not question:
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
+    pool = request.app.state.pool
+    if req.user_id is not None:
+        await require_access(pool, req.user_id, req.engagement_id)
+
     return await run_query(
-        pool=request.app.state.pool,
-        embedding_model=request.app.state.embedding_model,
+        pool=pool,
+        embedding_model=await ready_model(request),
         llm_providers=request.app.state.llm_providers,
         question=question,
         engagement_id=req.engagement_id,
