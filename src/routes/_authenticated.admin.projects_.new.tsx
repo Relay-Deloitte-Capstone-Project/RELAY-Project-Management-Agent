@@ -10,29 +10,21 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { GhostButton, PageSection, Panel } from "@/components/relay/primitives";
+import { TeamRoster } from "@/components/relay/TeamRoster";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  addMockProject,
   completedStepCount,
+  deriveSetupProgress,
+  fetchProject,
   firstIncompleteStep,
-  getMockProject,
-  updateMockProject,
-  type MockProject,
-  type SetupStepKey,
-} from "@/lib/admin/mockProjects";
-import { allUsers } from "@/lib/mockData";
+  type BackendProject,
+} from "@/lib/admin/backendProjects";
+import { validateGithub, validateJira } from "@/lib/admin/validators";
 
 export const Route = createFileRoute("/_authenticated/admin/projects_/new")({
   validateSearch: (search: Record<string, unknown>): { project?: string } => {
@@ -87,8 +79,6 @@ type SowDocument = {
     source_page: number | null;
   }[];
 };
-type TeamRole = "Developer" | "Manager" | "Observer";
-type AddedMember = { name: string; email: string; role: TeamRole };
 type ConnState = "idle" | "testing" | "success" | "error";
 
 function StepProgress({ step }: { step: number }) {
@@ -166,55 +156,41 @@ function NewProjectWizard() {
   const { user } = Route.useRouteContext();
   const navigate = useNavigate();
   const { project: resumeId } = Route.useSearch();
-  const resuming = useMemo(() => (resumeId ? getMockProject(resumeId) : null), [resumeId]);
-  const [step, setStep] = useState(() =>
-    resuming ? firstIncompleteStep(resuming.setupProgress) : 0,
-  );
-  const [projectId, setProjectId] = useState<string | null>(resuming?.id ?? null);
-  // Real public.projects.engagement_id — created on Step 1 (see
-  // ensureBackendProject) so every step after that, including the SOW
-  // upload, attaches to a real backend project instead of a mock-only one.
-  const [engagementId, setEngagementId] = useState<string | null>(resuming?.engagementId ?? null);
+
+  // Resuming now means "load this real public.projects row" — resumeId is
+  // a real engagement_id (the All Projects page passes it straight from
+  // the database), not a client-side mock id. Setup progress is derived
+  // from what's actually saved (deriveSetupProgress), so it survives the
+  // browser being closed entirely — there's no client memory involved.
+  const [resumingProject, setResumingProject] = useState<BackendProject | null>(null);
+  const [resumeLoading, setResumeLoading] = useState(Boolean(resumeId));
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [step, setStep] = useState(0);
+  const [engagementId, setEngagementId] = useState<string | null>(resumeId ?? null);
 
   // Step 1
-  const [projectName, setProjectName] = useState(resuming?.name ?? "");
-  const [clientName, setClientName] = useState(resuming?.clientName ?? "");
-  const [startDate, setStartDate] = useState(resuming?.startDate ?? "");
-  const [endDate, setEndDate] = useState(resuming?.contractEnd ?? "");
+  const [projectName, setProjectName] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [description, setDescription] = useState("");
 
   // Step 2
-  const [jiraBaseUrl, setJiraBaseUrl] = useState(
-    resuming?.setupProgress.jira ? "https://acmecorp.atlassian.net" : "",
-  );
-  const [jiraProjectKey, setJiraProjectKey] = useState(resuming?.jiraKey ?? "");
-  const [jiraApiToken, setJiraApiToken] = useState(
-    resuming?.setupProgress.jira ? "••••••••••••" : "",
-  );
-  const [jiraEmail, setJiraEmail] = useState(
-    resuming?.setupProgress.jira
-      ? `admin@${resuming.clientName.toLowerCase().replace(/\s+/g, "")}.com`
-      : "",
-  );
-  const [jiraTest, setJiraTest] = useState<ConnState>(
-    resuming?.setupProgress.jira ? "success" : "idle",
-  );
-  const [jiraResult, setJiraResult] = useState<{ projectName: string; ticketCount: number } | null>(
-    resuming?.setupProgress.jira ? { projectName: resuming.jiraKey, ticketCount: 214 } : null,
-  );
+  const [jiraBaseUrl, setJiraBaseUrl] = useState("");
+  const [jiraProjectKey, setJiraProjectKey] = useState("");
+  const [jiraApiToken, setJiraApiToken] = useState("");
+  const [jiraEmail, setJiraEmail] = useState("");
+  const [jiraTest, setJiraTest] = useState<ConnState>("idle");
+  const [jiraErrorMsg, setJiraErrorMsg] = useState<string | null>(null);
+  const [jiraResult, setJiraResult] = useState<{ projectName: string } | null>(null);
 
   // Step 3
-  const [repoUrl, setRepoUrl] = useState(
-    resuming?.setupProgress.github ? `https://github.com/${resuming.githubRepo}` : "",
-  );
-  const [ghToken, setGhToken] = useState(resuming?.setupProgress.github ? "••••••••••••" : "");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [ghToken, setGhToken] = useState("");
   const [branch, setBranch] = useState("main");
-  const [ghTest, setGhTest] = useState<ConnState>(
-    resuming?.setupProgress.github ? "success" : "idle",
-  );
-  const [ghResult, setGhResult] = useState<{ repoName: string; commitCount: number } | null>(
-    resuming?.setupProgress.github ? { repoName: resuming.githubRepo, commitCount: 356 } : null,
-  );
+  const [ghTest, setGhTest] = useState<ConnState>("idle");
+  const [ghErrorMsg, setGhErrorMsg] = useState<string | null>(null);
+  const [ghResult, setGhResult] = useState<{ repoName: string } | null>(null);
 
   // Step 4 — real upload against POST /api/admin/sow/upload (backend/api/sow.py).
   // Multiple SOWs can be uploaded for one project — sowDocs tracks every
@@ -223,26 +199,62 @@ function NewProjectWizard() {
   // group them by document instead of merging into one undifferentiated list.
   const [sowFile, setSowFile] = useState<File | null>(null);
   const [sowDocs, setSowDocs] = useState<SowDocument[]>([]);
-  const [sowParsed, setSowParsed] = useState(Boolean(resuming?.setupProgress.sow));
+  const [sowParsed, setSowParsed] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [sowUploadError, setSowUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [scopeExclusions, setScopeExclusions] = useState("");
-  const [retentionDays, setRetentionDays] = useState(String(resuming?.retentionDays ?? 30));
-  const [dpaReference, setDpaReference] = useState(resuming?.dpaReference ?? "");
+  const [retentionDays, setRetentionDays] = useState("30");
+  const [dpaReference, setDpaReference] = useState("");
 
-  // Step 5
-  const [search, setSearch] = useState("");
-  const [pendingRole, setPendingRole] = useState<Record<string, TeamRole>>({});
-  const [addedMembers, setAddedMembers] = useState<AddedMember[]>([
-    { name: user.name, email: "", role: "Manager" },
-  ]);
   const [finished, setFinished] = useState(false);
 
+  // Loads the real project row and hydrates every field from what's
+  // actually saved — this is what makes "closed the app after finishing
+  // GitHub" resume at the SOW step instead of back at square one.
   useEffect(() => {
-    if (resuming) setStep(firstIncompleteStep(resuming.setupProgress));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!resumeId) return;
+    let cancelled = false;
+    setResumeLoading(true);
+    setResumeError(null);
+    fetchProject(resumeId)
+      .then((p) => {
+        if (cancelled) return;
+        setResumingProject(p);
+        setEngagementId(p.engagement_id);
+        setProjectName(p.name);
+        setClientName(p.client_name);
+        setStartDate(p.start_date ?? "");
+        setEndDate(p.end_date ?? "");
+        setJiraBaseUrl(p.jira_base_url ?? "");
+        setJiraProjectKey(p.jira_project_key ?? "");
+        setRepoUrl(p.github_repo_url ?? "");
+        setBranch(p.github_branch ?? "main");
+        setRetentionDays(p.retention_days != null ? String(p.retention_days) : "30");
+        setDpaReference(p.dpa_reference ?? "");
+
+        const progress = deriveSetupProgress(p);
+        if (progress.jira) {
+          setJiraTest("success");
+          setJiraResult({ projectName: (p.jira_project_key ?? "").toUpperCase() });
+        }
+        if (progress.github) {
+          setGhTest("success");
+          setGhResult({ repoName: p.github_repo_url ?? "" });
+        }
+        setStep(firstIncompleteStep(progress));
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setResumeError(err instanceof Error ? err.message : "Failed to load project");
+      })
+      .finally(() => {
+        if (!cancelled) setResumeLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [resumeId]);
 
   // Resuming a project that already has SOWs uploaded (from an earlier
@@ -284,47 +296,47 @@ function NewProjectWizard() {
     };
   }, [engagementId]);
 
-  const candidateUsers = useMemo(
-    () =>
-      allUsers.filter(
-        (u) =>
-          !addedMembers.some((m) => m.name === u.name) &&
-          (search.trim() === "" ||
-            u.name.toLowerCase().includes(search.toLowerCase()) ||
-            u.email.toLowerCase().includes(search.toLowerCase())),
-      ),
-    [search, addedMembers],
-  );
-
+  // Format/structure validation only — no live Jira or GitHub call happens
+  // here (see src/lib/admin/validators.ts for why). This used to pass as
+  // long as every field was merely non-empty, which meant a typo'd domain
+  // or a pasted-wrong link sailed through to "Connected". Now it actually
+  // checks the URL looks like a real Jira Cloud / GitHub repo link.
   function testJira() {
     setJiraTest("testing");
     setJiraResult(null);
+    setJiraErrorMsg(null);
     window.setTimeout(() => {
-      const ok =
-        jiraBaseUrl.trim() !== "" && jiraProjectKey.trim() !== "" && jiraApiToken.trim() !== "";
-      if (ok) {
-        setJiraTest("success");
-        setJiraResult({ projectName: jiraProjectKey.toUpperCase(), ticketCount: 1247 });
-      } else {
+      const msg = validateJira({
+        baseUrl: jiraBaseUrl,
+        projectKey: jiraProjectKey,
+        email: jiraEmail,
+        apiToken: jiraApiToken,
+      });
+      if (msg) {
+        setJiraErrorMsg(msg);
         setJiraTest("error");
+      } else {
+        setJiraTest("success");
+        setJiraResult({ projectName: jiraProjectKey.toUpperCase() });
       }
-    }, 900);
+    }, 500);
   }
 
   function testGithub() {
     setGhTest("testing");
     setGhResult(null);
+    setGhErrorMsg(null);
     window.setTimeout(() => {
-      const ok = repoUrl.trim() !== "" && ghToken.trim() !== "";
-      if (ok) {
-        setGhTest("success");
-        const repoName =
-          repoUrl.replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, "") || "repo";
-        setGhResult({ repoName, commitCount: 892 });
-      } else {
+      const msg = validateGithub({ repoUrl, token: ghToken });
+      if (msg) {
+        setGhErrorMsg(msg);
         setGhTest("error");
+      } else {
+        setGhTest("success");
+        const repoName = repoUrl.replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, "");
+        setGhResult({ repoName });
       }
-    }, 900);
+    }, 500);
   }
 
   // Real pipeline: upload -> backend saves the PDF, extracts text, chunks +
@@ -453,72 +465,11 @@ function NewProjectWizard() {
     setDeliverables((prev) => prev.filter((d) => d.id !== id));
   }
 
-  function addMember(name: string, email: string) {
-    const role = pendingRole[name] ?? "Developer";
-    setAddedMembers((prev) => [...prev, { name, email, role }]);
-  }
-
-  function removeMember(name: string) {
-    setAddedMembers((prev) => prev.filter((m) => m.name !== name));
-  }
-
-  // Persists progress as the admin advances — matches the spec's "save on
-  // Next" behaviour instead of only writing once at the very end. If the
-  // project doesn't exist in the store yet (step 1, first time through),
-  // this is what creates it with status='setup'.
-  function persistStep(patch: Partial<MockProject>) {
-    if (projectId) {
-      updateMockProject(projectId, { ...patch, lastActivity: "just now" });
-      return projectId;
-    }
-    const id = `proj-${Date.now()}`;
-    const project: MockProject = {
-      id,
-      name: projectName || "Untitled project",
-      clientName: clientName || "—",
-      jiraKey: "—",
-      jiraBaseUrl: "—",
-      githubRepo: "—",
-      status: "setup",
-      memberCount: 1,
-      startDate: startDate || new Date().toISOString().slice(0, 10),
-      retentionDays: null,
-      dpaReference: "—",
-      contractEnd: endDate || null,
-      setupProgress: { details: false, jira: false, github: false, sow: false, team: false },
-      lastActivity: "just now",
-      ticketCount: 0,
-      commitCount: 0,
-      coveragePct: 0,
-      chunksCount: 0,
-      lastSync: "—",
-      team: [{ initials: "AG", name: user.name, role: "Manager" }],
-      ...patch,
-    };
-    addMockProject(project);
-    setProjectId(id);
-    return id;
-  }
-
-  // Merges a single step's completion into whatever progress the project
-  // already has, so revisiting an earlier step via Back and hitting Next
-  // again doesn't wipe out later steps that were already completed.
-  function markStepDone(key: SetupStepKey, patch: Partial<MockProject> = {}) {
-    const current = projectId ? getMockProject(projectId) : null;
-    const progress = current?.setupProgress ?? {
-      details: false,
-      jira: false,
-      github: false,
-      sow: false,
-      team: false,
-    };
-    persistStep({ ...patch, setupProgress: { ...progress, [key]: true } });
-  }
-
   // Creates the real public.projects row the first time it's needed (Step 1,
   // normally) and reuses it after. Best-effort: if the backend is
-  // unreachable this returns null and the wizard still progresses through
-  // its local mock state — only the SOW upload step hard-requires a real id.
+  // unreachable this returns null — the wizard's own local state still lets
+  // the admin move through the steps, but nothing is saved until a real
+  // engagement_id exists (the SOW upload step hard-requires one).
   async function ensureBackendProject(): Promise<string | null> {
     if (engagementId) return engagementId;
     try {
@@ -575,27 +526,17 @@ function NewProjectWizard() {
   }
 
   async function nextFromStep1() {
-    const id = await ensureBackendProject();
-    markStepDone("details", {
-      name: projectName,
-      clientName,
-      startDate: startDate || new Date().toISOString().slice(0, 10),
-      contractEnd: endDate || null,
-      ...(id ? { engagementId: id } : {}),
-    });
+    await ensureBackendProject();
     setStep(1);
   }
 
   function nextFromStep2() {
     putBackendLink("jira", { base_url: jiraBaseUrl, project_key: jiraProjectKey.toUpperCase() });
-    markStepDone("jira", { jiraKey: jiraProjectKey.toUpperCase() });
     setStep(2);
   }
 
   function nextFromStep3() {
-    const repoName = ghResult?.repoName ?? repoUrl.replace(/^https?:\/\/github\.com\//, "");
     putBackendLink("github", { repo_url: repoUrl, branch });
-    markStepDone("github", { githubRepo: repoName });
     setStep(3);
   }
 
@@ -604,22 +545,44 @@ function NewProjectWizard() {
       retention_days: Number(retentionDays) || null,
       dpa_reference: dpaReference || null,
     });
-    markStepDone("sow", {
-      retentionDays: Number(retentionDays) || null,
-      dpaReference: dpaReference || "—",
-    });
     setStep(4);
   }
 
   function finishSetup() {
     patchBackendProject({ status: "active" });
-    markStepDone("team", { status: "active", memberCount: addedMembers.length });
     setFinished(true);
   }
 
   const canNextStep1 = projectName.trim() !== "" && clientName.trim() !== "";
   const canNextStep2 = jiraTest === "success";
   const canNextStep3 = ghTest === "success";
+
+  if (resumeLoading) {
+    return (
+      <AppShell user={user} title="Project setup">
+        <PageSection>
+          <div className="flex items-center justify-center gap-2 py-16 text-[13px] text-mute">
+            <Loader2 className="size-4 animate-spin" /> Loading project…
+          </div>
+        </PageSection>
+      </AppShell>
+    );
+  }
+
+  if (resumeError) {
+    return (
+      <AppShell user={user} title="Project setup">
+        <PageSection>
+          <div className="flex flex-col items-center gap-3 py-16 text-center">
+            <p className="text-[13px] text-danger">{resumeError}</p>
+            <GhostButton tone="brand" onClick={() => navigate({ to: "/admin/projects" })}>
+              Go to All projects
+            </GhostButton>
+          </div>
+        </PageSection>
+      </AppShell>
+    );
+  }
 
   if (finished) {
     return (
@@ -631,7 +594,7 @@ function NewProjectWizard() {
                 <Check className="size-6 text-success" />
               </div>
               <h2 className="text-[16px] font-semibold text-ink">
-                {(resuming?.name ?? projectName) || "Project"} is set up and active
+                {(resumingProject?.name ?? projectName) || "Project"} is set up and active
               </h2>
               <p className="max-w-[360px] text-[13px] text-mute">
                 First ingestion job has been queued. It'll show up in Ingestion logs shortly.
@@ -652,19 +615,22 @@ function NewProjectWizard() {
   }
 
   return (
-    <AppShell user={user} title={resuming ? `Continue setup — ${resuming.name}` : "New project"}>
+    <AppShell
+      user={user}
+      title={resumingProject ? `Continue setup — ${resumingProject.name}` : "New project"}
+    >
       <PageSection label="Project setup">
-        {resuming && (
+        {resumingProject && (
           <div className="mb-4 flex items-center justify-between rounded-lg border border-brand/30 bg-brand-soft px-3.5 py-2.5">
             <div>
-              <p className="text-[13px] font-semibold text-ink">Resuming {resuming.name}</p>
+              <p className="text-[13px] font-semibold text-ink">Resuming {resumingProject.name}</p>
               <p className="text-[12px] text-mute">
-                {completedStepCount(resuming.setupProgress)} of {STEPS.length} steps already
-                complete · last activity {resuming.lastActivity}
+                {completedStepCount(deriveSetupProgress(resumingProject))} of {STEPS.length} steps
+                already complete
               </p>
             </div>
             <span className="rounded-full bg-brand px-2 py-0.5 text-[11px] font-semibold text-brand-foreground">
-              {resuming.clientName}
+              {resumingProject.client_name}
             </span>
           </div>
         )}
@@ -770,13 +736,13 @@ function NewProjectWizard() {
                 </GhostButton>
                 {jiraTest === "success" && jiraResult && (
                   <span className="flex items-center gap-1.5 text-[13px] font-medium text-success">
-                    <Check className="size-3.5" /> Found {jiraResult.projectName} —{" "}
-                    {jiraResult.ticketCount.toLocaleString()} tickets
+                    <Check className="size-3.5" /> {jiraResult.projectName} looks like a valid Jira
+                    project
                   </span>
                 )}
                 {jiraTest === "error" && (
                   <span className="flex items-center gap-1.5 text-[13px] font-medium text-danger">
-                    <X className="size-3.5" /> Authentication failed — check base URL, key and token
+                    <X className="size-3.5" /> {jiraErrorMsg}
                   </span>
                 )}
               </div>
@@ -830,13 +796,13 @@ function NewProjectWizard() {
                 </GhostButton>
                 {ghTest === "success" && ghResult && (
                   <span className="flex items-center gap-1.5 text-[13px] font-medium text-success">
-                    <Check className="size-3.5" /> {ghResult.repoName} —{" "}
-                    {ghResult.commitCount.toLocaleString()} commits found
+                    <Check className="size-3.5" /> {ghResult.repoName} looks like a valid GitHub
+                    repository
                   </span>
                 )}
                 {ghTest === "error" && (
                   <span className="flex items-center gap-1.5 text-[13px] font-medium text-danger">
-                    <X className="size-3.5" /> Couldn't reach that repository — check URL and token
+                    <X className="size-3.5" /> {ghErrorMsg}
                   </span>
                 )}
               </div>
@@ -1060,68 +1026,13 @@ function NewProjectWizard() {
 
           {step === 4 && (
             <div className="flex flex-col gap-4">
-              <Field label="Search users by name or email">
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search…"
-                />
-              </Field>
-
-              {candidateUsers.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  {candidateUsers.map((u) => (
-                    <div
-                      key={u.email}
-                      className="flex items-center gap-3 rounded-lg bg-surface-sunken px-3 py-2"
-                    >
-                      <span className="size-1.5 shrink-0 rounded-full bg-mute" />
-                      <span className="w-40 shrink-0 truncate text-[13px] text-ink">{u.name}</span>
-                      <span className="flex-grow truncate text-[12px] text-mute">{u.email}</span>
-                      <Select
-                        value={pendingRole[u.name] ?? "Developer"}
-                        onValueChange={(v) =>
-                          setPendingRole((prev) => ({ ...prev, [u.name]: v as TeamRole }))
-                        }
-                      >
-                        <SelectTrigger className="h-7 w-32 text-[12px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Developer">Developer</SelectItem>
-                          <SelectItem value="Manager">Manager</SelectItem>
-                          <SelectItem value="Observer">Observer</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <GhostButton tone="brand" onClick={() => addMember(u.name, u.email)}>
-                        Add
-                      </GhostButton>
-                    </div>
-                  ))}
-                </div>
+              {engagementId ? (
+                <TeamRoster engagementId={engagementId} />
+              ) : (
+                <p className="py-4 text-center text-[13px] text-mute">
+                  Complete Step 1 before staffing the team.
+                </p>
               )}
-
-              <div>
-                <h3 className="section-label mb-1.5">Already added</h3>
-                <div className="flex flex-col gap-1.5">
-                  {addedMembers.map((m) => (
-                    <div
-                      key={m.name}
-                      className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
-                    >
-                      <span className="size-1.5 shrink-0 rounded-full bg-success" />
-                      <span className="w-40 shrink-0 truncate text-[13px] text-ink">{m.name}</span>
-                      <span className="flex-grow truncate text-[12px] text-mute">
-                        {m.email || "—"}
-                      </span>
-                      <span className="text-[12px] font-medium text-mute">{m.role}</span>
-                      <GhostButton tone="danger" onClick={() => removeMember(m.name)}>
-                        Remove
-                      </GhostButton>
-                    </div>
-                  ))}
-                </div>
-              </div>
 
               <WizardNav
                 step={step}
