@@ -9,11 +9,17 @@ status to 'active'. This is what gives the SOW upload pipeline (api/sow.py)
 a real engagement_id to attach to, instead of every test upload landing on
 the one hand-seeded 'proj-001' row.
 
-Team assignment (wizard Step 5) writes public.project_members rows via the
-/api/admin/projects/{id}/members endpoints below — that table doubles as
-the access-control list api/access.py enforces for Ask Project. "User" rows
-are reachable via FK because prisma db push targets this same Postgres
-instance (the older SQLite split no longer applies).
+Team assignment (wizard Step 5) has two separate tables, kept distinct on
+purpose: public.project_members (database/project_members.sql) is the
+access-control list api/access.py enforces for Ask Project reads, keyed by
+the Prisma "User".id FK — the /api/admin/projects/{id}/members endpoints
+below manage it. public.project_staffing (database/project_staffing.sql) is
+the real-world staffing roster (name/email/department/role, no FK — this
+app's login users live in Prisma/SQLite on the Node side, not in this
+Postgres instance) shown on the Team tab, managed by the
+/api/admin/projects/{id}/staffing endpoints below; adding a person there
+checks every OTHER active/setup project for the same email and flags
+(never silently blocks) a double-staffing conflict.
 """
 
 import re
@@ -70,9 +76,23 @@ class Governance(BaseModel):
     dpa_reference: Optional[str] = None
 
 
+ROLE_CHOICES = ("Manager", "Developer", "QA", "Designer", "Observer")
+
+
+class NewStaffMember(BaseModel):
+    name: str
+    email: str
+    department: Optional[str] = None
+    role: str = "Developer"
+    # Set on the second call, after the admin has seen the double-staffing
+    # warning and chosen to add the person anyway.
+    force: bool = False
+
+
 def _row_to_project(r) -> dict:
     return {
         "engagement_id": r["engagement_id"],
+        "project_code": r["project_code"],
         "name": r["name"],
         "client_name": r["client_name"],
         "status": r["status"],
@@ -106,7 +126,7 @@ async def create_project(body: NewProject, request: Request):
         INSERT INTO public.projects
             (engagement_id, name, client_name, status, start_date, end_date, created_by)
         VALUES ($1, $2, $3, 'setup', $4, $5, $6)
-        RETURNING engagement_id, name, client_name, status, start_date, end_date,
+        RETURNING engagement_id, project_code, name, client_name, status, start_date, end_date,
                   created_by, created_at
         """,
         engagement_id,
@@ -124,11 +144,12 @@ async def list_projects(request: Request):
     pool: asyncpg.Pool = request.app.state.pool
     rows = await pool.fetch(
         """
-        SELECT p.engagement_id, p.name, p.client_name, p.status, p.start_date, p.end_date,
-               p.created_by, p.created_at,
+        SELECT p.engagement_id, p.project_code, p.name, p.client_name, p.status,
+               p.start_date, p.end_date, p.created_by, p.created_at,
                jl.base_url AS jira_base_url, jl.project_key AS jira_project_key,
                gl.repo_url AS github_repo_url, gl.branch AS github_branch,
-               gov.retention_days, gov.dpa_reference
+               gov.retention_days, gov.dpa_reference,
+               (SELECT COUNT(*) FROM public.project_members m WHERE m.engagement_id = p.engagement_id) AS member_count
         FROM public.projects p
         LEFT JOIN public.project_jira_links jl ON jl.engagement_id = p.engagement_id
         LEFT JOIN public.project_github_links gl ON gl.engagement_id = p.engagement_id
@@ -144,8 +165,8 @@ async def get_project(engagement_id: str, request: Request):
     pool: asyncpg.Pool = request.app.state.pool
     row = await pool.fetchrow(
         """
-        SELECT p.engagement_id, p.name, p.client_name, p.status, p.start_date, p.end_date,
-               p.created_by, p.created_at,
+        SELECT p.engagement_id, p.project_code, p.name, p.client_name, p.status,
+               p.start_date, p.end_date, p.created_by, p.created_at,
                jl.base_url AS jira_base_url, jl.project_key AS jira_project_key,
                gl.repo_url AS github_repo_url, gl.branch AS github_branch,
                gov.retention_days, gov.dpa_reference
@@ -174,7 +195,7 @@ async def update_project(engagement_id: str, body: UpdateProject, request: Reque
         SET end_date = COALESCE($2, end_date),
             status   = COALESCE($3, status)
         WHERE engagement_id = $1
-        RETURNING engagement_id, name, client_name, status, start_date, end_date,
+        RETURNING engagement_id, project_code, name, client_name, status, start_date, end_date,
                   created_by, created_at
         """,
         engagement_id,
@@ -184,6 +205,25 @@ async def update_project(engagement_id: str, body: UpdateProject, request: Reque
     if row is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return _row_to_project(row)
+
+
+@router.delete("/api/admin/projects/{engagement_id}")
+async def delete_project(engagement_id: str, request: Request):
+    pool: asyncpg.Pool = request.app.state.pool
+    # project_jira_links/github_links/governance/sow_documents/ingestion_logs/
+    # project_members/project_tickets/project_commits all FK engagement_id
+    # ON DELETE CASCADE (database/*.sql) — one delete here cleans all of them.
+    # public.chunks has no FK to projects (its rows can outlive a project on
+    # purpose, e.g. while re-tagging data to a different engagement_id), so
+    # it's untouched by this — clear it out separately first if that's not
+    # wanted for a given engagement.
+    deleted = await pool.fetchval(
+        "DELETE FROM public.projects WHERE engagement_id = $1 RETURNING engagement_id",
+        engagement_id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"deleted": True}
 
 
 @router.put("/api/admin/projects/{engagement_id}/jira")
@@ -362,3 +402,96 @@ async def remove_member(engagement_id: str, user_id: str, request: Request):
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Membership not found")
     return {"ok": True}
+
+
+# --- Staffing roster (wizard Step 5 UI) — public.project_staffing, kept
+# --- separate from the access-control table above on purpose: this stores
+# --- name/email/department directly since login users live in Prisma/SQLite
+# --- on the Node side, not this Postgres instance. --------------------------
+
+@router.get("/api/admin/projects/{engagement_id}/staffing")
+async def list_staffing(engagement_id: str, request: Request):
+    pool: asyncpg.Pool = request.app.state.pool
+    await _require_project(pool, engagement_id)
+    rows = await pool.fetch(
+        """
+        SELECT id, engagement_id, name, email, department, role, assigned_at
+        FROM public.project_staffing
+        WHERE engagement_id = $1
+        ORDER BY assigned_at ASC
+        """,
+        engagement_id,
+    )
+    return [dict(r) for r in rows]
+
+
+@router.post("/api/admin/projects/{engagement_id}/staffing")
+async def add_staff_member(engagement_id: str, body: NewStaffMember, request: Request):
+    pool: asyncpg.Pool = request.app.state.pool
+    await _require_project(pool, engagement_id)
+
+    name = body.name.strip()
+    email = body.email.strip().lower()
+    if not name or not email:
+        raise HTTPException(status_code=400, detail="name and email are required")
+    if body.role not in ROLE_CHOICES:
+        raise HTTPException(status_code=400, detail="Invalid role")
+
+    already_here = await pool.fetchval(
+        "SELECT 1 FROM public.project_staffing WHERE engagement_id = $1 AND email = $2",
+        engagement_id,
+        email,
+    )
+    if already_here:
+        raise HTTPException(status_code=409, detail="This person is already on this project")
+
+    # Double-staffing check: is this email already assigned to a DIFFERENT
+    # project that hasn't been archived? Flagged, never silently blocked —
+    # a mid-size firm routinely staffs one person across a couple of active
+    # engagements, so the admin decides, the system just surfaces it.
+    conflicts = await pool.fetch(
+        """
+        SELECT p.engagement_id, p.name AS project_name, p.project_code, m.role
+        FROM public.project_staffing m
+        JOIN public.projects p ON p.engagement_id = m.engagement_id
+        WHERE m.email = $1 AND m.engagement_id != $2 AND p.status != 'archived'
+        """,
+        email,
+        engagement_id,
+    )
+    if conflicts and not body.force:
+        return {
+            "conflict": True,
+            "conflicts": [dict(c) for c in conflicts],
+        }
+
+    row = await pool.fetchrow(
+        """
+        INSERT INTO public.project_staffing (engagement_id, name, email, department, role)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, engagement_id, name, email, department, role, assigned_at
+        """,
+        engagement_id,
+        name,
+        email,
+        body.department.strip() if body.department else None,
+        body.role,
+    )
+    return {"conflict": False, "member": dict(row)}
+
+
+@router.delete("/api/admin/projects/{engagement_id}/staffing/{member_id}")
+async def remove_staff_member(engagement_id: str, member_id: str, request: Request):
+    pool: asyncpg.Pool = request.app.state.pool
+    deleted = await pool.fetchval(
+        """
+        DELETE FROM public.project_staffing
+        WHERE id = $1 AND engagement_id = $2
+        RETURNING id
+        """,
+        member_id,
+        engagement_id,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Member not found on this project")
+    return {"deleted": True}

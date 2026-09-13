@@ -3,6 +3,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { Chip, GhostButton, PageSection, Panel, ProgressRow } from "@/components/relay/primitives";
+import { useMyProject } from "@/lib/admin/useMyProject";
 
 export const Route = createFileRoute("/_authenticated/dev/epics")({
   head: () => ({
@@ -34,14 +35,20 @@ type Epic = {
 
 function Epics() {
   const { user } = Route.useRouteContext();
+  const { project, loading: loadingProject } = useMyProject(user.email);
   const [epics, setEpics] = useState<Epic[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!project) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/project/epics`);
+        const params = new URLSearchParams({
+          engagement_id: project.engagement_id,
+          requester_email: user.email,
+        });
+        const res = await fetch(`${API_URL}/api/project/epics?${params}`);
         if (!res.ok) throw new Error("Request failed");
         const json: Epic[] = await res.json();
         if (!cancelled) setEpics(json);
@@ -52,11 +59,19 @@ function Epics() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [project, user.email]);
 
   return (
     <AppShell user={user} title="Epics">
-      <PageSection label="Active epics" subtitle="Real epics from the KPD Jira board.">
+      <PageSection
+        label="Active epics"
+        subtitle={project ? `Real epics tracked for ${project.name}.` : "Loading your project…"}
+      >
+        {loadingProject && (
+          <div className="flex items-center gap-2 text-[13px] text-mute">
+            <Loader2 className="size-3.5 animate-spin" /> Finding your project…
+          </div>
+        )}
         {error && <p className="text-[13px] text-danger">{error}</p>}
         {!epics && !error && (
           <div className="flex items-center gap-2 text-[13px] text-mute">
@@ -69,7 +84,15 @@ function Epics() {
               <Panel key={epic.key}>
                 <div className="flex items-start justify-between gap-3">
                   <h3 className="text-[13px] font-medium text-ink">{epic.title}</h3>
-                  <Chip tone={epic.status === "Done" ? "success" : epic.status === "In Progress" ? "brand" : "warning"}>
+                  <Chip
+                    tone={
+                      epic.status === "Done"
+                        ? "success"
+                        : epic.status === "In Progress"
+                          ? "brand"
+                          : "warning"
+                    }
+                  >
                     {epic.status}
                   </Chip>
                 </div>

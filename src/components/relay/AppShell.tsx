@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { project } from "@/lib/mockData";
 import { periodConfig, useTimePeriod, type Period } from "@/hooks/useTimePeriod";
 import type { Role, SessionUser } from "@/lib/auth/types";
 import { SignOutButton } from "./SignOutButton";
@@ -53,11 +52,19 @@ const NAV: Record<Role, NavGroup[]> = {
   MANAGER: [
     {
       label: "Overview",
+      items: [{ to: "/mgr/dashboard", label: "Dashboard", icon: <BarChart3 /> }],
+    },
+    {
+      label: "Team",
       items: [
-        { to: "/mgr/dashboard", label: "Dashboard", icon: <BarChart3 /> },
         { to: "/mgr/team", label: "Team handover", icon: <Users /> },
         { to: "/mgr/handover-kit", label: "Handover kit", icon: <PackageOpen /> },
         { to: "/mgr/onboarding-kit", label: "Onboarding kit", icon: <Rocket /> },
+      ],
+    },
+    {
+      label: "Delivery",
+      items: [
         { to: "/mgr/scope", label: "Scope guardian", icon: <Shield /> },
         { to: "/mgr/epics", label: "Epic progress", icon: <Boxes /> },
         { to: "/mgr/deliverables", label: "Deliverables", icon: <ClipboardList /> },
@@ -68,8 +75,8 @@ const NAV: Record<Role, NavGroup[]> = {
     {
       label: "Projects",
       items: [
-        { to: "/admin/projects", label: "All projects", icon: <FolderKanban /> },
         { to: "/admin/projects/new", label: "Project setup", icon: <FolderCog /> },
+        { to: "/admin/projects", label: "All projects", icon: <FolderKanban /> },
         { to: "/admin/deliverables", label: "Deliverables", icon: <ClipboardList /> },
       ],
     },
@@ -193,13 +200,9 @@ function Sidebar({ role }: { role: Role }) {
       </div>
 
       <div className="border-t border-sidebar-border px-5 py-4">
-        <div className="flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-success" />
-          <span className="text-[13px] font-medium text-sidebar-foreground">{project.name}</span>
-        </div>
-        <div className="mt-1 text-[11px] text-sidebar-muted">
-          {project.tickets.toLocaleString()} tickets · {project.commits} commits
-        </div>
+        <p className="text-[11px] leading-relaxed text-sidebar-muted italic">
+          Project memory that never forgets — for teams that do.
+        </p>
       </div>
     </aside>
   );

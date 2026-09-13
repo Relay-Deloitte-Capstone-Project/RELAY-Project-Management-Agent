@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { GhostButton, PageSection, Panel } from "@/components/relay/primitives";
+import { TeamRoster } from "@/components/relay/TeamRoster";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -23,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { validateGithub, validateJira } from "@/lib/admin/validators";
 import {
   addMockProject,
   completedStepCount,
@@ -354,6 +356,21 @@ function NewProjectWizard() {
   );
 
   function testJira() {
+    // Format check first — no live Jira call happens here (see
+    // src/lib/admin/validators.ts), but it catches a typo'd domain or a
+    // pasted-wrong link before the fake "Test connection" delay even starts.
+    if (
+      validateJira({
+        baseUrl: jiraBaseUrl,
+        projectKey: jiraProjectKey,
+        email: jiraEmail,
+        apiToken: jiraApiToken,
+      })
+    ) {
+      setJiraTest("error");
+      setJiraResult(null);
+      return;
+    }
     setJiraTest("testing");
     setJiraResult(null);
     window.setTimeout(() => {
@@ -369,6 +386,11 @@ function NewProjectWizard() {
   }
 
   function testGithub() {
+    if (validateGithub({ repoUrl, token: ghToken })) {
+      setGhTest("error");
+      setGhResult(null);
+      return;
+    }
     setGhTest("testing");
     setGhResult(null);
     window.setTimeout(() => {
@@ -1134,6 +1156,7 @@ function NewProjectWizard() {
 
           {step === 4 && (
             <div className="flex flex-col gap-4">
+              <h3 className="section-label mb-1.5">Ask Project access</h3>
               <Field label="Search users by name or email">
                 <Input
                   value={search}
@@ -1196,6 +1219,13 @@ function NewProjectWizard() {
                   ))}
                 </div>
               </div>
+
+              {engagementId && (
+                <div className="border-t border-border pt-4">
+                  <h3 className="section-label mb-1.5">Team roster &amp; staffing</h3>
+                  <TeamRoster engagementId={engagementId} />
+                </div>
+              )}
 
               <WizardNav
                 step={step}
