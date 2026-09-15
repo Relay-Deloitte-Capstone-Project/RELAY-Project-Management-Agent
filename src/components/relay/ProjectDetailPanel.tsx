@@ -1,5 +1,5 @@
-import { FileText, Loader2, Save, Trash2, Upload, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Loader2, Save, X } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,22 +11,6 @@ import type { BackendProject } from "@/lib/admin/backendProjects";
 import type { SessionUser } from "@/lib/auth/types";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
-
-type SowDeliverable = {
-  id: string;
-  sequence: number;
-  name: string;
-  acceptance_criteria: string | null;
-  source_page: number | null;
-};
-
-type SowDocument = {
-  id: string;
-  file_name: string;
-  status: "uploaded" | "parsing" | "parsed" | "failed";
-  parse_error?: string | null;
-  deliverables: SowDeliverable[];
-};
 
 function formatDate(iso: string | null) {
   if (!iso) return "—";
@@ -211,193 +195,6 @@ function GovernanceEditor({ project }: { project: BackendProject }) {
   );
 }
 
-function DeliverablesTab({
-  engagementId,
-  uploadedBy,
-}: {
-  engagementId: string;
-  uploadedBy: string;
-}) {
-  const [docs, setDocs] = useState<SowDocument[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [file, setFile] = useState<File | null>(null);
-  const [parsing, setParsing] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  function loadDocs() {
-    return fetch(`${API_URL}/api/admin/sow?engagement_id=${engagementId}&include_deliverables=true`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: SowDocument[]) => setDocs(data));
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    loadDocs()
-      .catch(() => {
-        // Empty list renders as the "No SOWs uploaded yet" state either way.
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [engagementId]);
-
-  async function uploadSow() {
-    if (!file) return;
-    setParsing(true);
-    setUploadError(null);
-    try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("engagement_id", engagementId);
-      form.append("uploaded_by", uploadedBy);
-
-      const res = await fetch(`${API_URL}/api/admin/sow/upload`, {
-        method: "POST",
-        body: form,
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `Upload failed (${res.status})`);
-      }
-      await loadDocs();
-      setFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      toast("SOW uploaded and parsed.");
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setParsing(false);
-    }
-  }
-
-  async function removeDoc(docId: string) {
-    setDocs((prev) => prev.filter((d) => d.id !== docId));
-    try {
-      await fetch(`${API_URL}/api/admin/sow/${docId}`, { method: "DELETE" });
-    } catch {
-      // Best-effort — it's already gone from this view either way.
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
-        <SectionLabel>Upload a statement of work</SectionLabel>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/pdf"
-          className="hidden"
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
-            setUploadError(null);
-          }}
-        />
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex flex-grow items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-3 text-[13px] text-mute hover:border-brand hover:text-ink"
-          >
-            {file ? (
-              <>
-                <FileText className="size-4 shrink-0" />
-                <span className="truncate font-medium text-ink">{file.name}</span>
-                <span className="shrink-0 text-mute">({(file.size / 1024).toFixed(0)} KB)</span>
-              </>
-            ) : (
-              <>
-                <Upload className="size-4 shrink-0" />
-                Click to choose a PDF
-              </>
-            )}
-          </button>
-          <GhostButton tone="brand" onClick={uploadSow} disabled={!file || parsing}>
-            {parsing ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            {parsing ? "Uploading & parsing…" : "Upload & parse"}
-          </GhostButton>
-        </div>
-        {uploadError && (
-          <span className="flex items-center gap-1.5 text-[12px] font-medium text-danger">
-            <X className="size-3 shrink-0" /> {uploadError}
-          </span>
-        )}
-      </div>
-
-      {loading ? (
-        <div className="flex items-center justify-center gap-2 py-10 text-[13px] text-mute">
-          <Loader2 className="size-4 animate-spin" /> Loading…
-        </div>
-      ) : docs.length === 0 ? (
-        <p className="py-6 text-center text-[13px] text-mute">No SOWs uploaded yet.</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {docs.map((doc) => (
-            <div key={doc.id} className="rounded-lg border border-border p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="truncate text-[13px] font-semibold text-ink">{doc.file_name}</span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span
-                    className={
-                      doc.status === "parsed"
-                        ? "text-[11px] font-medium text-success"
-                        : doc.status === "failed"
-                          ? "text-[11px] font-medium text-danger"
-                          : "text-[11px] font-medium text-mute"
-                    }
-                    title={doc.status === "failed" ? (doc.parse_error ?? undefined) : undefined}
-                  >
-                    {doc.status}
-                  </span>
-                  {doc.status === "failed" && (
-                    <button
-                      type="button"
-                      onClick={() => removeDoc(doc.id)}
-                      className="text-mute hover:text-danger"
-                      title="Remove and retry"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              {doc.deliverables.length > 0 ? (
-                <div className="flex flex-col gap-1.5">
-                  {doc.deliverables.map((d) => (
-                    <div key={d.id} className="rounded-md bg-surface-sunken px-2.5 py-1.5">
-                      <span className="mr-1.5 text-[11px] font-semibold text-mute">
-                        D{d.sequence}
-                      </span>
-                      <span className="text-[12.5px] text-ink">{d.name}</span>
-                      {d.acceptance_criteria && (
-                        <p className="mt-0.5 text-[11.5px] text-mute">{d.acceptance_criteria}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[12px] text-mute">
-                  {doc.status === "failed"
-                    ? (doc.parse_error ?? "Parsing failed.")
-                    : doc.status === "parsing"
-                      ? "Parsing…"
-                      : "No deliverables extracted."}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ProjectDetailPanel({
   project,
   user,
@@ -429,7 +226,6 @@ export function ProjectDetailPanel({
             <Tabs defaultValue="connections" className="mt-2">
               <TabsList>
                 <TabsTrigger value="connections">Connections</TabsTrigger>
-                <TabsTrigger value="deliverables">Deliverables</TabsTrigger>
                 <TabsTrigger value="team">Team</TabsTrigger>
               </TabsList>
 
@@ -439,13 +235,6 @@ export function ProjectDetailPanel({
                 <GithubEditor project={project} />
                 <SectionLabel className="mt-2">Retention &amp; governance</SectionLabel>
                 <GovernanceEditor project={project} />
-              </TabsContent>
-
-              <TabsContent value="deliverables" className="mt-4">
-                <DeliverablesTab
-                  engagementId={project.engagement_id}
-                  uploadedBy={user.email || user.name}
-                />
               </TabsContent>
 
               <TabsContent value="team" className="mt-4">

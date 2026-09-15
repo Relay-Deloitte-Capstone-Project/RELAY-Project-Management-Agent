@@ -124,3 +124,18 @@ async def get_pr_diffstat(pr_number: str) -> str:
             f"{data['changed_files']} files changed, "
             f"+{data['additions']} -{data['deletions']}"
         )
+
+
+async def post_commit_comment(repo: str, sha: str, body: str) -> None:
+    """The Scratchpad auto-draft bot comment — this engagement's commits go
+    straight to main with no PR to comment on, so the equivalent surface is
+    a comment on the commit itself. Best-effort: a failed post (rate limit,
+    revoked token) must never block the draft from existing in Scratchpad,
+    so the caller should catch and log, not propagate."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{API_BASE}/repos/{repo}/commits/{sha}/comments",
+            headers=_headers(),
+            json={"body": body},
+        )
+        resp.raise_for_status()

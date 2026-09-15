@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { validateGithub, validateJira } from "@/lib/admin/validators";
+import { listAppUsers } from "@/lib/admin/functions";
 import {
   addMockProject,
   completedStepCount,
@@ -89,10 +90,15 @@ type SowDocument = {
   }[];
 };
 type TeamRole = "Developer" | "Manager" | "Observer";
+// id is the public.project_staffing row's own id (a UUID) — not a Prisma
+// user id. There's no FK between them: staffing is keyed by email, since
+// Prisma's User table lives in a separate SQLite database this Postgres
+// backend can't query.
 type AddedMember = { id: string; name: string; email: string; role: TeamRole };
-// Row from GET /api/admin/users — the real Prisma "User" table, which
-// replaced the mock roster (allUsers from mockData) as the picker source.
-type BackendUser = { id: string; name: string; email: string; role: string };
+// Row from listAppUsers() (src/lib/admin/functions.ts) — a real Prisma
+// query run from the Node side, which replaced the mock roster (allUsers
+// from mockData) as the picker source. No id: email is the natural key.
+type BackendUser = { name: string; email: string; role: string };
 type ConnState = "idle" | "testing" | "success" | "error";
 
 function StepProgress({ step }: { step: number }) {
@@ -298,9 +304,8 @@ function NewProjectWizard() {
   // row they see is a real membership, not just local state.
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/api/admin/users`)
-      .then((res) => (res.ok ? res.json() : []))
-      .then((users: BackendUser[]) => {
+    listAppUsers()
+      .then((users) => {
         if (!cancelled) setBackendUsers(users);
       })
       .catch(() => {
@@ -316,22 +321,26 @@ function NewProjectWizard() {
     let cancelled = false;
     (async () => {
       try {
-        await fetch(`${API_URL}/api/admin/projects/${engagementId}/members`, {
-          method: "PUT",
+        // force: true — this wizard step doesn't have room for a
+        // double-staffing warning dialog; granting Ask Project access to
+        // someone already staffed elsewhere is fine, not worth blocking on.
+        await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_id: user.id, role: "MANAGER" }),
-        });
-        const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/members`);
-        if (!res.ok || cancelled) return;
-        const members: AddedMember[] = (await res.json()).map(
-          (m: { user_id: string; name: string; email: string; role: string }) => ({
-            id: m.user_id,
-            name: m.name,
-            email: m.email,
-            role: (m.role.charAt(0) + m.role.slice(1).toLowerCase()) as TeamRole,
+          body: JSON.stringify({
+            name: user.name,
+            email: user.email,
+            role: "Manager",
+            force: true,
           }),
+        });
+        const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`);
+        if (!res.ok || cancelled) return;
+        const rows: { id: string; name: string; email: string; role: TeamRole }[] =
+          await res.json();
+        setAddedMembers(
+          rows.map((r) => ({ id: r.id, name: r.name, email: r.email, role: r.role })),
         );
-        setAddedMembers(members);
       } catch {
         // Best-effort — the locally seeded "current user as Manager" row stays.
       }
@@ -339,7 +348,7 @@ function NewProjectWizard() {
     return () => {
       cancelled = true;
     };
-    // user.id is stable for the session; engagementId is the real trigger.
+    // user.name/user.email are stable for the session; engagementId is the real trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engagementId]);
 
@@ -347,7 +356,7 @@ function NewProjectWizard() {
     () =>
       backendUsers.filter(
         (u) =>
-          !addedMembers.some((m) => m.id === u.id) &&
+          !addedMembers.some((m) => m.email.toLowerCase() === u.email.toLowerCase()) &&
           (search.trim() === "" ||
             u.name.toLowerCase().includes(search.toLowerCase()) ||
             u.email.toLowerCase().includes(search.toLowerCase())),
@@ -532,26 +541,38 @@ function NewProjectWizard() {
     setDeliverables((prev) => prev.filter((d) => d.id !== id));
   }
 
-  function addMember(candidate: BackendUser) {
-    const role = pendingRole[candidate.id] ?? "Developer";
-    setAddedMembers((prev) => [
-      ...prev,
-      { id: candidate.id, name: candidate.name, email: candidate.email, role },
-    ]);
+  async function addMember(candidate: BackendUser) {
+    const role = pendingRole[candidate.email] ?? "Developer";
     if (!engagementId) return;
-    fetch(`${API_URL}/api/admin/projects/${engagementId}/members`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: candidate.id, role: role.toUpperCase() }),
-    }).catch(() => {
-      // Best-effort — the row stays in the wizard's list either way.
-    });
+    try {
+      const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // force: true — no double-staffing warning dialog in this step;
+        // see the note on the effect above.
+        body: JSON.stringify({
+          name: candidate.name,
+          email: candidate.email,
+          role,
+          force: true,
+        }),
+      });
+      if (!res.ok) return;
+      const body = await res.json();
+      const created = body.member as { id: string; name: string; email: string; role: TeamRole };
+      setAddedMembers((prev) => [
+        ...prev,
+        { id: created.id, name: created.name, email: created.email, role: created.role },
+      ]);
+    } catch {
+      // Best-effort — the picker just won't show them as added.
+    }
   }
 
   function removeMember(id: string) {
     setAddedMembers((prev) => prev.filter((m) => m.id !== id));
     if (!engagementId) return;
-    fetch(`${API_URL}/api/admin/projects/${engagementId}/members/${id}`, {
+    fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing/${id}`, {
       method: "DELETE",
     }).catch(() => {
       // Best-effort — it's already gone from the wizard's view either way.
@@ -1169,16 +1190,16 @@ function NewProjectWizard() {
                 <div className="flex flex-col gap-1.5">
                   {candidateUsers.map((u) => (
                     <div
-                      key={u.id}
+                      key={u.email}
                       className="flex items-center gap-3 rounded-lg bg-surface-sunken px-3 py-2"
                     >
                       <span className="size-1.5 shrink-0 rounded-full bg-mute" />
                       <span className="w-40 shrink-0 truncate text-[13px] text-ink">{u.name}</span>
                       <span className="flex-grow truncate text-[12px] text-mute">{u.email}</span>
                       <Select
-                        value={pendingRole[u.id] ?? "Developer"}
+                        value={pendingRole[u.email] ?? "Developer"}
                         onValueChange={(v) =>
-                          setPendingRole((prev) => ({ ...prev, [u.id]: v as TeamRole }))
+                          setPendingRole((prev) => ({ ...prev, [u.email]: v as TeamRole }))
                         }
                       >
                         <SelectTrigger className="h-7 w-32 text-[12px]">

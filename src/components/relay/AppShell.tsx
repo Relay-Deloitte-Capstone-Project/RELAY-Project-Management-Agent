@@ -3,8 +3,8 @@ import {
   Archive,
   BarChart3,
   Boxes,
-  ClipboardList,
   Database,
+  FileStack,
   FolderCog,
   FolderKanban,
   LayoutGrid,
@@ -57,7 +57,7 @@ const NAV: Record<Role, NavGroup[]> = {
     {
       label: "Team",
       items: [
-        { to: "/mgr/team", label: "Team handover", icon: <Users /> },
+        { to: "/mgr/team", label: "Team overview", icon: <Users /> },
         { to: "/mgr/handover-kit", label: "Handover kit", icon: <PackageOpen /> },
         { to: "/mgr/onboarding-kit", label: "Onboarding kit", icon: <Rocket /> },
       ],
@@ -67,7 +67,7 @@ const NAV: Record<Role, NavGroup[]> = {
       items: [
         { to: "/mgr/scope", label: "Scope guardian", icon: <Shield /> },
         { to: "/mgr/epics", label: "Epic progress", icon: <Boxes /> },
-        { to: "/mgr/deliverables", label: "Deliverables", icon: <ClipboardList /> },
+        { to: "/mgr/documents", label: "PM Documents", icon: <FileStack /> },
       ],
     },
   ],
@@ -77,7 +77,7 @@ const NAV: Record<Role, NavGroup[]> = {
       items: [
         { to: "/admin/projects/new", label: "Project setup", icon: <FolderCog /> },
         { to: "/admin/projects", label: "All projects", icon: <FolderKanban /> },
-        { to: "/admin/deliverables", label: "Deliverables", icon: <ClipboardList /> },
+        { to: "/admin/documents", label: "PM Documents", icon: <FileStack /> },
       ],
     },
     {
@@ -213,11 +213,13 @@ export function AppShell({
   title,
   children,
   padded = true,
+  headerExtra,
 }: {
   user: SessionUser;
   title: string;
   children: ReactNode;
   padded?: boolean;
+  headerExtra?: ReactNode;
 }) {
   const { dark, toggle } = useDarkMode();
   const period = useTimePeriod();
@@ -237,6 +239,7 @@ export function AppShell({
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-border px-6">
           <h1 className="text-[15px] font-semibold text-ink">{title}</h1>
           <div className="flex items-center gap-3">
+            {headerExtra}
             <PeriodChip period={period} />
             <ThemeToggle dark={dark} toggle={toggle} />
             <div

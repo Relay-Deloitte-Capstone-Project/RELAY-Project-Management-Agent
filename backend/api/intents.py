@@ -17,6 +17,7 @@ cite only what was used, decline out-of-project requests.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -70,6 +71,12 @@ PERSON_RE = re.compile(
     r"\b(?:for|assigned to|assignee[ds]? (?:is |to )?|raised (?:for|by|to)"
     r"|by|of)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b"
 )
+
+# "Priya's bugs", "Akshar's open tickets" — possessive form names the person
+# without any of the prepositions PERSON_RE looks for. Same underlying gap as
+# the recent-intent fix below: natural phrasing shouldn't need to match a
+# fixed set of sentence templates to resolve who's being asked about.
+POSSESSIVE_PERSON_RE = re.compile(r"\b([A-Z][a-z]+)'s\b")
 
 # "tickets for me", "my bugs", "what am I working on" — first person resolves
 # to the logged-in user's display name (passed in from the session token).
@@ -144,6 +151,32 @@ RECENT_COMMITS_SCOPED_SQL = """
       AND ($3::text IS NULL OR metadata->>'author' ILIKE '%' || $3 || '%')
     ORDER BY metadata->>'date' DESC
     LIMIT $2
+"""
+
+# A "ticket key"-shaped token (letters-dash-digits) isn't always a Jira
+# ticket — it might be a risk ID (R-01), a change request (CR-002), a
+# decision (D-01), or a requirement (FR-05) from an ingested PM document.
+# Checked only after both the chunk-store Jira lookup and the live Jira
+# board come up empty, so a real ticket key is never shadowed by this.
+ENTITY_LOOKUP_SQL = """
+    SELECT id, source_doc_id, source_type, content, metadata, section_path, entities
+    FROM public.chunks
+    WHERE engagement_id = $1
+      AND is_latest = TRUE
+      AND (
+            source_doc_id = $2
+         OR entities @> ('{"risk_ids":["' || $2 || '"]}')::jsonb
+         OR entities @> ('{"cr_refs":["' || $2 || '"]}')::jsonb
+         OR entities @> ('{"decision_ids":["' || $2 || '"]}')::jsonb
+         OR entities @> ('{"requirement_ids":["' || $2 || '"]}')::jsonb
+         OR entities @> ('{"deliverable_ids":["' || $2 || '"]}')::jsonb
+      )
+    -- A chunk that IS the record (its own source_doc_id, e.g. the R-01 row
+    -- itself) always outranks one that merely mentions the id in passing
+    -- (e.g. a retro noting "per R-01") — otherwise an incidental mention
+    -- elsewhere can crowd the real record out of a 5-row LIMIT.
+    ORDER BY (source_doc_id = $2) DESC
+    LIMIT 5
 """
 
 TICKETS_BY_KEY_SQL = """
@@ -351,6 +384,117 @@ def source_dict(r: dict, snippet_chars: int) -> dict:
     }
 
 
+# --- semantic fallback classification ---------------------------------------
+#
+# classify() below is a regex net: fast, free, and exactly right for the
+# syntactic intents (a ticket key, a sha, "sprint 3" — fixed formats, not
+# natural language). It's also the whole reason "my open tickets" and
+# "Priya's bugs" silently misfired until this fixed them — every future
+# document type and every new phrasing anyone naturally uses is another
+# regex someone has to think to add. That doesn't scale to "10+ documents +
+# Jira + GitHub" the way an actual understanding of the question does.
+#
+# So the regex net stays (it's instant and covers the common phrasings for
+# free), but when it finds nothing, one small classification call gets a
+# real read on the question before conceding to plain vector RAG — which has
+# no notion of "assigned to me" or "status = To Do" at all, and would just
+# quietly return an unhelpful answer the way it did for Agrim. A JSON parse
+# failure, timeout, or provider outage here simply falls through to RAG
+# exactly as today — this can only add coverage, never remove it.
+
+CLASSIFY_PROMPT = """A teammate is using a project chatbot backed by this project's \
+Jira tickets and GitHub commits. Their question: "{question}"
+
+Logged-in user's display name: {user_name}
+
+Decide whether this question is asking for a FILTERED LIST of tickets/bugs/commits
+— scoped to a person and/or a status — as opposed to a general question about the
+project, a specific named ticket, or something unrelated. Examples that ARE a
+filtered list request: "my open tickets", "what's Priya working on", "bugs still
+in progress", "Akshar's done items". Examples that are NOT: "what is KPD-33 about",
+"how was the webhook bug fixed", "what does the SOW say about retention".
+
+If the question uses "I/me/my/mine" to refer to the asker, the person is the
+logged-in user's display name above — never leave it null in that case.
+
+Respond with ONLY a JSON object, nothing else:
+{{"is_digest": <true|false>, "person": <string name or null>, "status": <one of "To Do", "In Progress", "In Review", "Done", "Blocked", or null>, "bugs_only": <true|false>}}
+"""
+
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+_VALID_STATUSES = {"To Do", "In Progress", "In Review", "Done", "Blocked"}
+
+# A semantic classification call is worth the wait only if it's fast — past
+# this, falling through to plain RAG (instant) beats making the user stare at
+# a blank chat waiting for a classifier that was supposed to save them time.
+CLASSIFY_TIMEOUT_SECONDS = 6.0
+
+
+def _worth_semantic_check(question: str, user_name: str | None) -> bool:
+    """Cheap necessary-but-not-sufficient gate: does this question even
+    reference a person or a status at all? A ticket/commit digest request
+    always does (a name, a possessive, "my/me", or a status word) — a plain
+    content question about the project almost never does. This is what keeps
+    classify_semantic()'s extra LLM call off the common path, without going
+    back to requiring an exact topic word the way the old regex-only version
+    did (that specificity was the actual bug)."""
+    if user_name and FIRST_PERSON_RE.search(question):
+        return True
+    if PERSON_RE.search(question) or POSSESSIVE_PERSON_RE.search(question):
+        return True
+    if STATUS_RE.search(question):
+        return True
+    return False
+
+
+async def classify_semantic(
+    question: str, user_name: str | None, llm_providers: list
+) -> tuple[str, object] | None:
+    """LLM fallback for when classify()'s regex net finds nothing. Returns a
+    ("recent", (person, status)) tuple like classify() would, or None to fall
+    through to default RAG — never raises, so a bad response, a timeout, or
+    every provider being down just means "no smarter than before", not a
+    broken request."""
+    if not llm_providers:
+        return None
+    prompt = CLASSIFY_PROMPT.format(question=question, user_name=user_name or "(unknown)")
+    try:
+        answer, _ = await asyncio.wait_for(
+            llm.generate_answer(llm_providers, prompt), timeout=CLASSIFY_TIMEOUT_SECONDS
+        )
+        m = _JSON_OBJECT_RE.search(answer)
+        if not m:
+            return None
+        data = json.loads(m.group(0))
+    except Exception:
+        logger.info("classify_semantic: falling through to RAG", exc_info=True)
+        return None
+
+    person = data.get("person") or None
+    if isinstance(person, str):
+        person = person.strip() or None
+        if person and person.lower() in {"unknown", "null", "none"}:
+            person = None
+
+    status = data.get("status") or None
+    if status not in _VALID_STATUSES:
+        status = None
+
+    # is_digest is a useful signal but an inconsistent one in practice — a
+    # model that clearly extracted a real person/status ("what has Priya
+    # wrapped up" -> person=Priya, status=Done) sometimes still marks
+    # is_digest false. Trust the extraction itself: fall through to RAG only
+    # when nothing concrete was found to filter on — which is also the
+    # model's own signal that this wasn't a digest request at all, and
+    # avoids dumping an unscoped "all tickets" digest the question never
+    # asked for.
+    if person is None and status is None:
+        return None
+
+    return ("recent", (person, status))
+
+
 def classify(question: str, user_name: str | None = None) -> tuple[str, object] | None:
     """Return (intent_name, match_payload) or None for default RAG.
 
@@ -374,14 +518,27 @@ def classify(question: str, user_name: str | None = None) -> tuple[str, object] 
     # answer can't be filled in from whatever else vector search turns up.
     if ticket and TICKET_ASK_RE.search(question):
         return ("ticket", ticket.group(1))
-    if RECENT_LIST_RE.search(question) and RECENT_TOPIC_RE.search(question):
-        person = PERSON_RE.search(question)
+    if RECENT_TOPIC_RE.search(question):
+        person = PERSON_RE.search(question) or POSSESSIVE_PERSON_RE.search(question)
         person_name = person.group(1) if person else None
-        if person_name is None and user_name and FIRST_PERSON_RE.search(question):
+        is_first_person = person_name is None and bool(user_name) and bool(
+            FIRST_PERSON_RE.search(question)
+        )
+        if is_first_person:
             person_name = user_name
         status_m = STATUS_RE.search(question)
         status = STATUS_MAP.get(status_m.group(1).lower()) if status_m else None
-        return ("recent", (person_name, status))
+        # A plain noun phrase naming a person or status ("my open tickets",
+        # "Priya's bugs", "in progress tickets") is just as much a structured
+        # request as one phrased with an enumerating verb ("show/list/recent
+        # tickets") — routing only the latter to SQL meant every other
+        # phrasing silently fell through to vector RAG, which has no way to
+        # filter by assignee or status at all. Requiring RECENT_LIST_RE only
+        # when none of person/first-person/status fired keeps a bare "bugs?"
+        # or "issues?" mention (e.g. "what issues might this clause cause")
+        # from misrouting when there's no actual filter to apply.
+        if RECENT_LIST_RE.search(question) or person_name or status:
+            return ("recent", (person_name, status))
     return None
 
 
@@ -389,15 +546,14 @@ def classify(question: str, user_name: str | None = None) -> tuple[str, object] 
 
 
 async def handle_sprint(pool, question, engagement_id, sprint_num, llm_providers, ctx):
+    # "sprintNN" in the question doesn't always mean "the live Jira sprint" —
+    # it also matches things like a sprint-review document's filename
+    # ("sprint_review_sprint13"). When there's no live sprint to answer from
+    # (Jira not configured, or no sprint with this number on the board),
+    # returning None here defers to default RAG instead of dead-ending, so a
+    # question like that can still be answered from the indexed document.
     if not jira_client.configured():
-        return {
-            "answer": "Sprint details come from the live Jira board, but the "
-            "Jira integration isn't configured on this backend, so I can't "
-            "look Sprint {} up.".format(sprint_num),
-            "sources": [],
-            "abstained": False,
-            "provider": None,
-        }
+        return None
 
     sprints = await jira_client.list_sprints()
     sprint = next(
@@ -409,14 +565,7 @@ async def handle_sprint(pool, question, engagement_id, sprint_num, llm_providers
         None,
     )
     if sprint is None:
-        names = ", ".join(s.get("name", "?") for s in sprints) or "none"
-        return {
-            "answer": "I couldn't find a Sprint {} on the Jira board. The "
-            "sprints I can see are: {}.".format(sprint_num, names),
-            "sources": [],
-            "abstained": False,
-            "provider": None,
-        }
+        return None
 
     issues = await jira_client.sprint_issues(
         sprint["id"], fields="summary,status,assignee,priority,issuetype"
@@ -708,6 +857,30 @@ async def handle_ticket(pool, question, engagement_id, ticket_key, llm_providers
                 "provider": provider,
             }
 
+    # Not a Jira ticket after all — try it as an entity ID from an ingested
+    # PM document (risk, CR, decision, requirement, deliverable) before
+    # giving up. This is what makes "status of R-01" or "what did CR-002
+    # decide" an exact, zero-hallucination lookup instead of falling through
+    # to vector search over a two-character ID that has no useful embedding.
+    entity_rows = await pool.fetch(ENTITY_LOOKUP_SQL, engagement_id, ticket_key)
+    if entity_rows:
+        results = [dict(r) for r in entity_rows]
+        context = build_context(results, ctx["CONTEXT_CHARS"])
+        prompt = TICKET_PROMPT.format(
+            question=question,
+            ticket_key=ticket_key,
+            live_note="",
+            context=context,
+            style=depth_directive(question),
+        )
+        answer, provider = await llm.generate_answer(llm_providers, prompt)
+        return {
+            "answer": answer,
+            "sources": [source_dict(x, ctx["SNIPPET_CHARS"]) for x in filter_cited_sources(answer, results)],
+            "abstained": False,
+            "provider": provider,
+        }
+
     return {
         "answer": "{} isn't in this project's records{}. It may not exist, or "
         "it may not have been synced yet.".format(
@@ -733,6 +906,18 @@ async def maybe_handle(
 ) -> dict | None:
     """Try the structured intents; None means 'use default RAG'."""
     found = classify(question, user_name)
+    if found is None and _worth_semantic_check(question, user_name):
+        # Regex net caught nothing — before conceding to plain vector RAG
+        # (which can't filter by assignee/status at all), get a real read on
+        # whether this is a ticket/commit digest request phrased in a way the
+        # regexes don't anticipate. See classify_semantic()'s docstring.
+        #
+        # Gated behind _worth_semantic_check so this extra LLM call only fires
+        # when the question actually names/implies a person or a status —
+        # the majority of content questions ("how was the webhook bug fixed",
+        # "what does the SOW say about retention") have neither and go
+        # straight to RAG exactly as fast as before this feature existed.
+        found = await classify_semantic(question, user_name, llm_providers)
     if found is None:
         return None
     name, payload = found

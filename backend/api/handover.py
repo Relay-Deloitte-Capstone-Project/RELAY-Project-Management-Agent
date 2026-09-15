@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -39,7 +41,7 @@ async def kpd_tickets():
 
 
 class AssigneeUpdate(BaseModel):
-    account_id: str | None
+    account_id: Optional[str]
 
 
 @router.put("/api/handover/kpd/tickets/{issue_key}/assignee")
@@ -68,8 +70,8 @@ async def update_kpd_assignee(issue_key: str, payload: AssigneeUpdate):
 class LeaveUpdate(BaseModel):
     account_id: str
     on_leave: bool
-    leave_date: str | None = None
-    return_date: str | None = None
+    leave_date: Optional[str] = None
+    return_date: Optional[str] = None
 
 
 @router.put("/api/handover/kpd/leave")

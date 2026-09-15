@@ -62,6 +62,35 @@ SEARCH_SQL = """
     LIMIT $3
 """
 
+# Lexical half of hybrid retrieval — hits idx_chunks_content_tsvector (a GIN
+# index that existed in the schema but nothing ever queried). Vector search
+# alone misses exact identifiers: SOW clause numbers, dollar figures, ticket
+# keys, error codes. plainto_tsquery on a question full of stopwords often
+# still ranks the chunk containing the literal term above the embedding's
+# nearest neighbor would.
+KEYWORD_SEARCH_SQL = """
+    SELECT id,
+           source_doc_id,
+           source_type,
+           content,
+           metadata,
+           ts_rank(to_tsvector('english', content), plainto_tsquery('english', $1)) AS score
+    FROM public.chunks
+    WHERE engagement_id = $2
+      AND to_tsvector('english', content) @@ plainto_tsquery('english', $1)
+    ORDER BY score DESC
+    LIMIT $3
+"""
+
+# Reciprocal Rank Fusion constant (standard default from the IR literature —
+# large enough that rank 1 vs rank 2 in either list isn't wildly overweighted).
+RRF_K = 60
+
+# Retrieve this many from each of vector/keyword search before fusing down to
+# TOP_K — wide enough that a chunk ranked #12 by cosine but #1 by exact term
+# match still gets pulled in.
+FUSION_POOL = TOP_K * 3
+
 # "Summarize KPD-33" style requests skip embedding/vector search entirely and
 # fetch that one ticket directly — idx_chunks_source(source_type, source_doc_id)
 # makes this an indexed point lookup rather than an approximate ANN scan.
@@ -199,6 +228,36 @@ def filter_cited_sources(answer: str, results: list) -> list:
     return cited
 
 
+def fuse_hybrid_results(vector_results: list, keyword_results: list) -> list:
+    """Merge vector and keyword rankings via Reciprocal Rank Fusion.
+
+    RRF combines two rankings without needing their scores on the same scale
+    (cosine similarity and ts_rank aren't comparable numbers) — each result's
+    fused score is the sum of 1/(RRF_K + rank) across whichever list(s) it
+    appears in, so a chunk ranked highly by either method rises to the top.
+    The original vector `score` (cosine similarity) is preserved on each row
+    for the abstention threshold check, which only ever looks at vector
+    confidence — RRF only decides ordering and which extra chunks get in.
+    """
+    fused: dict = {}
+    for rank, r in enumerate(vector_results):
+        entry = fused.setdefault(r["id"], dict(r))
+        entry["_rrf"] = entry.get("_rrf", 0.0) + 1.0 / (RRF_K + rank + 1)
+    for rank, r in enumerate(keyword_results):
+        is_new = r["id"] not in fused
+        entry = fused.setdefault(r["id"], dict(r))
+        entry["_rrf"] = entry.get("_rrf", 0.0) + 1.0 / (RRF_K + rank + 1)
+        entry["keyword_rank"] = rank
+        if is_new:
+            # This chunk's only "score" so far is KEYWORD_SEARCH_SQL's
+            # ts_rank, aliased as `score` for that query alone — it is not on
+            # the same 0-1 cosine scale THRESHOLD is calibrated against, so it
+            # must not leak into the `score` field the abstention/threshold
+            # check reads.
+            entry["score"] = None
+    return sorted(fused.values(), key=lambda r: r["_rrf"], reverse=True)
+
+
 def extract_summarize_ticket(question: str):
     """Return the ticket key a "summarize KPD-33"-style question names, else None."""
     if not SUMMARIZE_INTENT_RE.search(question):
@@ -226,8 +285,8 @@ async def run_query(
     llm_providers: list,
     question: str,
     engagement_id: str,
-    history: list | None = None,
-    user_name: str | None = None,
+    history: Optional[list] = None,
+    user_name: Optional[str] = None,
 ) -> dict:
     """The full pipeline: intent-routed structured answers, the summarize
     shortcut, or embed→search→threshold→answer.
@@ -346,16 +405,29 @@ async def run_query(
     vec = await run_in_threadpool(embed, embedding_model, question)
     timings["embed"] = time.perf_counter() - t0
 
-    # Step 2 — cosine search against the engagement's chunks.
+    # Step 2 — hybrid search: cosine similarity (semantic) fused with
+    # full-text keyword search (exact terms — SOW clause numbers, dollar
+    # figures, error codes, ticket keys — that embeddings sometimes rank low
+    # despite being the literal answer). Both run against the same
+    # engagement scope; keyword search is skipped only if the question has
+    # no indexable terms (plainto_tsquery returns empty, e.g. pure punctuation).
     t0 = time.perf_counter()
-    rows = await pool.fetch(SEARCH_SQL, to_pgvector(vec), engagement_id, TOP_K)
-    results = [dict(r) for r in rows]
+    vector_rows = await pool.fetch(SEARCH_SQL, to_pgvector(vec), engagement_id, FUSION_POOL)
+    vector_results = [dict(r) for r in vector_rows]
+    try:
+        keyword_rows = await pool.fetch(KEYWORD_SEARCH_SQL, question, engagement_id, FUSION_POOL)
+        keyword_results = [dict(r) for r in keyword_rows]
+    except asyncpg.PostgresError:
+        keyword_results = []
     timings["search"] = time.perf_counter() - t0
 
-    top_score = results[0]["score"] if results else None
+    # Grounding confidence is judged on semantic similarity alone — ts_rank
+    # has no comparable scale and a lucky keyword hit on an off-topic chunk
+    # must never talk the pipeline into answering when it otherwise shouldn't.
+    top_score = vector_results[0]["score"] if vector_results else None
 
     # Step 3 — abstain rather than answer from weak grounding.
-    if not results or top_score < THRESHOLD:
+    if not vector_results or top_score < THRESHOLD:
         timings["total"] = time.perf_counter() - t_start
         report.write_report(
             question=question,
@@ -374,11 +446,17 @@ async def run_query(
             "timing_seconds": round(timings["total"], 3),
         }
 
-    # Only keep chunks that individually clear the bar — TOP_K widens the net
-    # to catch near-duplicate tickets that add real detail, but a long tail of
-    # weakly-related chunks would dilute the answer and get cited as if they
-    # were equally relevant as the top match.
-    results = [r for r in results if r["score"] >= THRESHOLD]
+    # Fuse the two rankings, then keep only chunks that either (a) individually
+    # clear the semantic bar, or (b) are a strong exact-text match (top half of
+    # the keyword pool) even if their embedding similarity alone wouldn't have
+    # cleared THRESHOLD — this is what lets an exact SOW clause/figure surface
+    # even when it's phrased nothing like the question.
+    strong_keyword_ids = {r["id"] for r in keyword_results[: max(1, TOP_K // 2)]}
+    fused = fuse_hybrid_results(vector_results, keyword_results)
+    results = [
+        r for r in fused
+        if (r.get("score") is not None and r["score"] >= THRESHOLD) or r["id"] in strong_keyword_ids
+    ][:TOP_K]
 
     # Step 4 — cited answer from the retrieved context only.
     history_block = ""
@@ -437,6 +515,8 @@ class QueryRequest(BaseModel):
     # keep working; the user-facing chat path (api/sessions.py) always
     # enforces membership itself, on every message.
     user_id: Optional[str] = None
+    # Access is checked by email against public.project_staffing (api/access.py)
+    email: Optional[str] = None
 
 
 @router.post("/api/query")
@@ -446,8 +526,8 @@ async def query(req: QueryRequest, request: Request):
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     pool = request.app.state.pool
-    if req.user_id is not None:
-        await require_access(pool, req.user_id, req.engagement_id)
+    if req.email is not None:
+        await require_access(pool, req.email, req.engagement_id)
 
     return await run_query(
         pool=pool,
