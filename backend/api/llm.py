@@ -7,6 +7,12 @@ provider whose API key is missing is silently skipped, so adding a key to
 .env is all it takes to join the chain. A provider that fails for any reason
 (rate limit included) falls through to the next one automatically.
 
+GEMINI_API_KEYS accepts a comma-separated list of keys from multiple Google
+accounts/projects. Each one gets its own "gemini"/"gemini-lite" (then
+"gemini-2"/"gemini-lite-2", ...) provider slot in the chain, so once one
+account's daily free-tier quota is exhausted the next account's key is tried
+automatically, well before falling through to Groq.
+
 Cerebras and OpenRouter are both OpenAI-compatible chat-completions APIs,
 so one client covers both — only the base URL, key and model differ.
 """
@@ -50,10 +56,23 @@ CHAIN = [
 ]
 
 
+def _gemini_keys() -> list:
+    """One or more Gemini API keys — from different Google accounts/projects
+    — so ingestion and Ask Project answers keep working once one account's
+    daily free-tier quota is exhausted. GEMINI_API_KEYS takes a comma-
+    separated list; GOOGLE_GEMINI_API (this repo's original single-key name)
+    or GEMINI_API_KEY still work as a single-key fallback."""
+    raw = os.environ.get("GEMINI_API_KEYS", "")
+    keys = [k.strip() for k in raw.split(",") if k.strip()]
+    if keys:
+        return keys
+    single = os.environ.get("GOOGLE_GEMINI_API") or os.environ.get("GEMINI_API_KEY")
+    return [single] if single else []
+
+
 def _gemini_key():
-    # GOOGLE_GEMINI_API is the name used in this repo's .env; the conventional
-    # GEMINI_API_KEY is accepted too.
-    return os.environ.get("GOOGLE_GEMINI_API") or os.environ.get("GEMINI_API_KEY")
+    keys = _gemini_keys()
+    return keys[0] if keys else None
 
 
 class GroqProvider:
@@ -164,22 +183,36 @@ SOW TEXT:
 """
 
 
+async def _gemini_structured_call(prompt: str, schema: "genai_types.Schema") -> str:
+    """Runs one structured (JSON-schema) Gemini call, trying each configured
+    account's key in turn — so a single account's daily quota running out
+    (RESOURCE_EXHAUSTED / 429) doesn't fail the whole ingestion, it just
+    moves on to the next account's key."""
+    keys = _gemini_keys()
+    if not keys:
+        raise RuntimeError("No Gemini API key set (GEMINI_API_KEYS, GOOGLE_GEMINI_API or GEMINI_API_KEY)")
+    last_error = None
+    for api_key in keys:
+        try:
+            client = genai.Client(api_key=api_key)
+            resp = await client.aio.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            return resp.text
+        except Exception as exc:
+            last_error = exc
+    raise last_error
+
+
 async def _extract_via_gemini(text: str) -> dict:
-    api_key = _gemini_key()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY (or GOOGLE_GEMINI_API) is not set")
-    client = genai.Client(api_key=api_key)
-    resp = await client.aio.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=DELIVERABLE_PROMPT.format(text=text),
-        config=genai_types.GenerateContentConfig(
-            temperature=0.1,
-            response_mime_type="application/json",
-            response_schema=DELIVERABLE_SCHEMA,
-            thinking_config=genai_types.ThinkingConfig(thinking_budget=0),
-        ),
-    )
-    return json.loads(resp.text)
+    return json.loads(await _gemini_structured_call(DELIVERABLE_PROMPT.format(text=text), DELIVERABLE_SCHEMA))
 
 
 async def _extract_via_groq(text: str) -> dict:
@@ -197,6 +230,138 @@ async def _extract_via_groq(text: str) -> dict:
         response_format={"type": "json_object"},
     )
     return json.loads(resp.choices[0].message.content or "{}")
+
+
+PM_DOC_TYPES = [
+    "charter", "deliverables_matrix", "requirements", "change_request",
+    "epic_brief", "sprint_planning", "sprint_review", "retro", "status_report",
+    "risk_log", "uat_signoff", "meeting_notes", "unclassified",
+]
+
+ENTITY_LIST_SCHEMA = genai_types.Schema(
+    type=genai_types.Type.ARRAY, items=genai_types.Schema(type=genai_types.Type.STRING)
+)
+
+PM_DOC_SCHEMA = genai_types.Schema(
+    type=genai_types.Type.OBJECT,
+    properties={
+        "doc_type": genai_types.Schema(type=genai_types.Type.STRING, enum=PM_DOC_TYPES),
+        "confidence": genai_types.Schema(type=genai_types.Type.NUMBER),
+        "notes": genai_types.Schema(type=genai_types.Type.STRING),
+        "doc_id": genai_types.Schema(type=genai_types.Type.STRING),
+        "scenario": genai_types.Schema(type=genai_types.Type.STRING, enum=["client", "internal"]),
+        "doc_version": genai_types.Schema(type=genai_types.Type.STRING),
+        "doc_date": genai_types.Schema(type=genai_types.Type.STRING),
+        "author": genai_types.Schema(type=genai_types.Type.STRING),
+        "doc_status": genai_types.Schema(
+            type=genai_types.Type.STRING, enum=["draft", "final", "superseded"]
+        ),
+        "recurrence_key": genai_types.Schema(type=genai_types.Type.STRING),
+        "sections": genai_types.Schema(
+            type=genai_types.Type.ARRAY,
+            items=genai_types.Schema(
+                type=genai_types.Type.OBJECT,
+                properties={
+                    "section_path": genai_types.Schema(type=genai_types.Type.STRING),
+                    "content": genai_types.Schema(type=genai_types.Type.STRING),
+                },
+                required=["section_path", "content"],
+            ),
+        ),
+        "entities": genai_types.Schema(
+            type=genai_types.Type.OBJECT,
+            properties={
+                "people": ENTITY_LIST_SCHEMA,
+                "deliverable_ids": ENTITY_LIST_SCHEMA,
+                "requirement_ids": ENTITY_LIST_SCHEMA,
+                "risk_ids": ENTITY_LIST_SCHEMA,
+                "ticket_refs": ENTITY_LIST_SCHEMA,
+                "decision_ids": ENTITY_LIST_SCHEMA,
+                "cr_refs": ENTITY_LIST_SCHEMA,
+            },
+        ),
+    },
+    required=["doc_type", "confidence", "sections"],
+)
+
+PM_DOC_PROMPT = """You are ingesting a PM-tool document into a knowledge base with 12 known
+document types. Read the document below and:
+
+1. Classify it as exactly one of: {doc_types}.
+   Use "unclassified" if it genuinely doesn't fit any type well, or if you're not
+   confident (confidence below 0.6) — do NOT force a low-confidence guess into a real
+   type, since a wrong classification corrupts grouping and search filters for every
+   other document of that type.
+2. Extract front-matter-equivalent fields if present in the text (YAML front matter,
+   a title block, etc.) or infer them from context: doc_id (e.g. "CR-002", "EPIC-D8" —
+   leave empty for recurring types like status reports that are identified by date
+   instead), scenario (client-facing or internal), doc_version, doc_date (YYYY-MM-DD),
+   author, doc_status (draft/final/superseded), and recurrence_key — for a RECURRING
+   type (sprint_planning, sprint_review, retro, status_report) this is what
+   distinguishes one instance from the next, e.g. a week_start date or a sprint number;
+   leave it empty for a one-off document like a specific Change Request.
+3. Split the document into logical sections matching that doc type's canonical
+   structure (e.g. a Risk Log's rows, a Retro's "What Went Well"/"What Went Poorly"/
+   "Action Items", a Charter's "Problem"/"Goal"/etc). Each section becomes one
+   retrieval chunk, so:
+   - Never split a table row, an action item, or a signature block across two sections.
+   - Target roughly 150-400 words of content per section; merge very short adjacent
+     sections of the SAME document, never merge content across documents.
+   - section_path should read like "Retro > What Went Poorly" or
+     "Risk & Issue Log > R-02" (for a single logged risk row).
+4. Extract entities actually named in the text (do not invent ones): people, deliverable
+   IDs (D1-D8 style), requirement IDs (FR-/NFR-), risk IDs (R-/I- style), ticket refs
+   (e.g. KPD-123), decision IDs (D-01 style), and change-request refs (CR-001 style).
+   Leave any category empty if none appear.
+
+Respond with ONLY a JSON object matching the schema. Never invent content not in the
+document — if a field isn't stated or inferable, leave it empty rather than guessing.
+
+DOCUMENT TEXT:
+{text}
+""".format(doc_types=", ".join(PM_DOC_TYPES), text="{text}")
+
+
+async def _classify_via_gemini(text: str) -> dict:
+    return json.loads(await _gemini_structured_call(PM_DOC_PROMPT.format(text=text), PM_DOC_SCHEMA))
+
+
+async def _classify_via_groq(text: str) -> dict:
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set")
+    client = AsyncGroq(api_key=api_key)
+    resp = await client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[{"role": "user", "content": PM_DOC_PROMPT.format(text=text)}],
+        temperature=0.1,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(resp.choices[0].message.content or "{}")
+
+
+async def classify_document(text: str) -> dict:
+    """Structured classification + section-chunking + entity extraction for
+    the generic PM-document pipeline (everything except SOW, which has its
+    own dedicated extract_deliverables() pipeline).
+
+    Same dual-provider pattern as extract_deliverables: Gemini first for its
+    tighter response_schema guarantee, Groq as fallback so an ingestion
+    doesn't hard-fail just because one provider is unavailable. Callers
+    should treat a low `confidence` (or doc_type == "unclassified") as a
+    signal to route the document to human review rather than trusting it.
+    """
+    try:
+        return await _classify_via_gemini(text)
+    except Exception as gemini_exc:
+        try:
+            return await _classify_via_groq(text)
+        except Exception as groq_exc:
+            raise RuntimeError(
+                "Gemini failed ({}); Groq fallback also failed ({})".format(
+                    gemini_exc, groq_exc
+                )
+            ) from groq_exc
 
 
 async def extract_deliverables(text: str) -> dict:
@@ -221,15 +386,32 @@ async def extract_deliverables(text: str) -> dict:
 
 
 def build_providers() -> list:
-    """Built once at startup. Ordered by CHAIN; unconfigured providers skipped."""
+    """Built once at startup. Ordered by CHAIN; unconfigured providers skipped.
+
+    Every configured Gemini key (GEMINI_API_KEYS) becomes its own provider —
+    "gemini"/"gemini-lite" for the first account, "gemini-2"/"gemini-lite-2"
+    for the second, etc. — so when generate_answer works through the chain
+    and one account's key fails (daily quota exhausted, most commonly), it
+    falls through to the next Gemini account before ever reaching Groq.
+    """
     available = {}
+    gemini_full = [
+        GeminiProvider(key, GEMINI_MODEL, name="gemini" if i == 0 else "gemini-{}".format(i + 1))
+        for i, key in enumerate(_gemini_keys())
+    ]
+    gemini_lite = [
+        GeminiProvider(
+            key, GEMINI_LITE_MODEL,
+            name="gemini-lite" if i == 0 else "gemini-lite-{}".format(i + 1),
+            disable_thinking=False,
+        )
+        for i, key in enumerate(_gemini_keys())
+    ]
+    for provider in gemini_full + gemini_lite:
+        available[provider.name] = provider
+
     if os.environ.get("GROQ_API_KEY"):
         available["groq"] = GroqProvider(os.environ["GROQ_API_KEY"])
-    if _gemini_key():
-        available["gemini"] = GeminiProvider(_gemini_key(), GEMINI_MODEL)
-        available["gemini-lite"] = GeminiProvider(
-            _gemini_key(), GEMINI_LITE_MODEL, name="gemini-lite", disable_thinking=False
-        )
     if os.environ.get("CEREBRAS_API_KEY"):
         available["cerebras"] = OpenAICompatibleProvider(
             "cerebras",
@@ -245,9 +427,20 @@ def build_providers() -> list:
             OPENROUTER_MODEL,
         )
 
-    ordered = [available[name] for name in CHAIN if name in available]
-    # Anything configured but not named in the chain still joins at the end.
-    ordered += [p for k, p in available.items() if k not in CHAIN]
+    ordered = []
+    for name in CHAIN:
+        if name == "gemini":
+            ordered += gemini_full
+        elif name == "gemini-lite":
+            ordered += gemini_lite
+        elif name in available:
+            ordered.append(available[name])
+    # Anything configured but not named in the chain still joins at the end
+    # (covers extra gemini-2/gemini-lite-2/... accounts when the chain only
+    # spells out the bare "gemini"/"gemini-lite" tokens, already expanded
+    # above, plus any other provider left out of LLM_PROVIDER_CHAIN).
+    seen = {id(p) for p in ordered}
+    ordered += [p for p in available.values() if id(p) not in seen]
     return ordered
 
 
@@ -255,8 +448,15 @@ def normalize_answer(answer: str) -> str:
     """Models occasionally cite with full-width brackets 【KPD-27】 or bold
     markers despite the prompt. Normalise citations to ASCII square brackets
     so filter_cited_sources and the frontend's citation stripper both work,
-    and drop bold markers (the chat bubble renders plain text)."""
-    return answer.replace("【", "[").replace("】", "]").replace("**", "")
+    and drop bold markers (the chat bubble renders plain text).
+
+    Also normalizes typographic hyphen/dash characters some models
+    substitute into a citation ID (e.g. "R‑ 01" using U+2011 non-breaking
+    hyphen, or an en/em dash) back to a plain ASCII hyphen — otherwise a
+    citation like [R‑01] never matches the real id "R-01" and a correct,
+    grounded answer silently loses its source attribution."""
+    answer = answer.replace("【", "[").replace("】", "]").replace("**", "")
+    return answer.replace("‑", "-").replace("–", "-").replace("‐", "-")
 
 
 async def generate_answer(providers: list, prompt: str) -> tuple:

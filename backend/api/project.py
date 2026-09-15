@@ -15,10 +15,9 @@ not a fake external Jira/GitHub link pretending to be a real connection.
 and normalizes both into the same flat shape, so every endpoint below
 doesn't need to know or care which project it's looking at. Callers that
 pass `engagement_id` + `requester_email` get that project's real data (gated
-by `_require_staffed` below, checked against public.project_staffing — a
-separate table from the user_id-keyed public.project_members api/access.py
-enforces for Ask Project, since login identity here is only known by email);
-callers that omit `engagement_id` keep hitting the original single live-Jira
+by `_require_staffed` below, checked by email against public.project_staffing
+— the same table and lookup api/access.py uses for Ask Project); callers
+that omit `engagement_id` keep hitting the original single live-Jira
 project, unchanged, for backward compatibility.
 """
 
@@ -32,6 +31,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from api import jira_client
+from api.scratchpad_triggers import DRAFT_TTL_DAYS
 
 router = APIRouter()
 
@@ -222,19 +222,58 @@ def _bucket_counts(issues: list) -> dict:
     return counts
 
 
-@router.get("/api/project/team")
-async def team(
+def _person_key(name: Optional[str]) -> str:
+    """Jira display names and GitHub commit authors are the same people
+    spelled two ways — "Agrim_Gairola" on the Jira board and in commit
+    authorship, "Agrim Gairola" in public.project_staffing. Collapse both to
+    one comparable key, the same normalization
+    api/scratchpad_triggers._resolve_assignee_email already does, so a person
+    doesn't silently split into two rows over punctuation."""
+    return (name or "").replace("_", " ").strip().lower()
+
+
+# Managers and admins are staffed on an engagement, but they aren't part of
+# the delivery roster these views describe — and nobody below them has any
+# business browsing their work profile, code trail or captured notes. Hidden
+# at the query rather than in the UI, so the data never reaches the browser
+# at all. Admin staffing management reads public.project_staffing directly
+# (api/admin_projects.py) and is deliberately unaffected by this.
+HIDDEN_ROSTER_ROLES = ["manager", "admin"]
+
+
+async def _hidden_person_keys(pool, engagement_id: str) -> set:
+    rows = await pool.fetch(
+        "SELECT name FROM public.project_staffing "
+        "WHERE engagement_id = $1 AND lower(role) = ANY($2::text[])",
+        engagement_id,
+        HIDDEN_ROSTER_ROLES,
+    )
+    return {_person_key(r["name"]) for r in rows}
+
+
+async def _team_rows(
     request: Request,
-    engagement_id: Optional[str] = Query(default=None),
-    requester_email: Optional[str] = Query(default=None),
-):
+    engagement_id: Optional[str] = None,
+    requester_email: Optional[str] = None,
+) -> list:
+    """The delivery roster + per-person Jira status counts behind
+    /api/project/team, factored out so team-continuity can build on exactly
+    the same people and account_ids rather than assembling a second, subtly
+    different roster.
+
+    Managers and admins are filtered out — see HIDDEN_ROSTER_ROLES above.
+    """
+    pool = request.app.state.pool
+
     if engagement_id and engagement_id != LIVE_JIRA_ENGAGEMENT_ID:
         if requester_email:
-            await _require_staffed(request.app.state.pool, requester_email, engagement_id)
-        pool = request.app.state.pool
+            await _require_staffed(pool, requester_email, engagement_id)
         members = await pool.fetch(
-            "SELECT name, email FROM public.project_staffing WHERE engagement_id = $1 ORDER BY assigned_at",
+            "SELECT name, email FROM public.project_staffing "
+            "WHERE engagement_id = $1 AND lower(role) <> ALL($2::text[]) "
+            "ORDER BY assigned_at",
             engagement_id,
+            HIDDEN_ROSTER_ROLES,
         )
         issues = await _mock_rows(request, engagement_id)
         counts = _bucket_counts(issues)
@@ -254,6 +293,9 @@ async def team(
     issues = await _all_issues(request)
     counts = _bucket_counts(issues)
     empty = {"to_do": 0, "in_progress": 0, "done": 0}
+    # The Jira board has no notion of these roles, so the exclusion list comes
+    # from project_staffing and is matched on the normalized name.
+    hidden = await _hidden_person_keys(pool, LIVE_JIRA_ENGAGEMENT_ID)
     return [
         {
             "account_id": u["accountId"],
@@ -262,7 +304,216 @@ async def team(
             **counts.get(u["displayName"], empty),
         }
         for u in users
+        if _person_key(u["displayName"]) not in hidden
     ]
+
+
+@router.get("/api/project/team")
+async def team(
+    request: Request,
+    engagement_id: Optional[str] = Query(default=None),
+    requester_email: Optional[str] = Query(default=None),
+):
+    return await _team_rows(request, engagement_id, requester_email)
+
+
+@router.get("/api/project/team-continuity")
+async def team_continuity(
+    request: Request,
+    engagement_id: Optional[str] = Query(default=None),
+    requester_email: Optional[str] = Query(default=None),
+):
+    """Standing per-person continuity state for the Team handover overview:
+    real Jira load, real commit trail, real captured-knowledge counts, and —
+    the point of the page — how much in-flight work currently has nothing
+    written down anywhere.
+
+    Deliberately NOT a productivity view. api/analytics.py states the same
+    constraint at length: no velocity, no ranking, no per-person "behind
+    schedule" flag. `undocumented_in_flight` describes the documentation
+    state of *work items* ("2 tickets nobody has written anything about"),
+    never a judgement about the person carrying them — the remedy is a note
+    or a linked commit, not working faster.
+
+    Draft scratchpad notes are counted but their content is never returned:
+    a draft belongs to the developer until they approve it (api/scratchpad.py),
+    so a manager can see that knowledge is being captured without being able
+    to read an unapproved note.
+    """
+    pool = request.app.state.pool
+    eid = engagement_id or LIVE_JIRA_ENGAGEMENT_ID
+
+    members = await _team_rows(request, engagement_id, requester_email)
+    issues = await _all_issues(request, engagement_id, requester_email)
+
+    staffing = await pool.fetch(
+        "SELECT name, email, role FROM public.project_staffing WHERE engagement_id = $1",
+        eid,
+    )
+    staff_by_person = {_person_key(r["name"]): r for r in staffing}
+
+    # In-flight work per person, and the ticket keys behind it.
+    in_flight: dict[str, list[str]] = {}
+    for i in issues:
+        if i["assignee"] and _status_category(i) == IN_PROGRESS_CATEGORY:
+            in_flight.setdefault(_person_key(i["assignee"]), []).append(i["key"])
+    all_keys = [k for keys in in_flight.values() for k in keys]
+
+    # "Written down" means either a Scratchpad note distilled from the ticket
+    # or at least one commit that references it — the two places this system
+    # actually retains reasoning. Anything with neither would leave with the
+    # person.
+    documented: set = set()
+    if all_keys:
+        noted = await pool.fetch(
+            "SELECT DISTINCT source_ticket FROM zone3.scratchpad_notes "
+            "WHERE source_ticket = ANY($1::text[])",
+            all_keys,
+        )
+        documented |= {r["source_ticket"] for r in noted}
+        linked = await pool.fetch(
+            """
+            SELECT DISTINCT ref AS ticket_key
+            FROM public.chunks c,
+                 jsonb_array_elements_text(c.metadata->'ticket_refs') AS ref
+            WHERE c.source_type = 'github_commit'
+              AND c.engagement_id = $1
+              AND c.metadata ? 'ticket_refs'
+              AND ref = ANY($2::text[])
+            """,
+            eid,
+            all_keys,
+        )
+        documented |= {r["ticket_key"] for r in linked}
+
+    commit_rows = await pool.fetch(
+        "SELECT author, COUNT(*) AS n, MAX(committed_at) AS last_at "
+        "FROM raw.github_commits GROUP BY author"
+    )
+    commits_by_person = {_person_key(r["author"]): r for r in commit_rows}
+
+    note_rows = await pool.fetch(
+        "SELECT lower(email) AS email, status, COUNT(*) AS n "
+        "FROM zone3.scratchpad_notes WHERE engagement_id = $1 GROUP BY lower(email), status",
+        eid,
+    )
+    notes_by_email: dict = {}
+    for r in note_rows:
+        notes_by_email.setdefault(r["email"], {})[r["status"]] = r["n"]
+
+    result = []
+    for m in members:
+        key = _person_key(m["name"])
+        staff = staff_by_person.get(key)
+        email = (staff["email"] if staff else m.get("email")) or ""
+        counts = notes_by_email.get(email.lower(), {})
+        commits = commits_by_person.get(key)
+        keys = in_flight.get(key, [])
+
+        result.append(
+            {
+                **m,
+                "email": email or None,
+                "role": staff["role"] if staff else None,
+                "commit_count": commits["n"] if commits else 0,
+                "last_commit_at": (
+                    commits["last_at"].isoformat() if commits and commits["last_at"] else None
+                ),
+                "notes_approved": counts.get("approved", 0) + counts.get("promoted", 0),
+                "notes_draft": counts.get("draft", 0),
+                "in_flight": len(keys),
+                "undocumented_in_flight": sum(1 for k in keys if k not in documented),
+            }
+        )
+    return result
+
+
+@router.get("/api/project/member-trail")
+async def member_trail(
+    request: Request,
+    name: str = Query(...),
+    engagement_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=15),
+):
+    """One person's real recent commits and which tickets each references —
+    the code trail behind their work state, for the Team handover profile.
+
+    Commit-to-ticket linkage lives only in public.chunks.metadata.ticket_refs
+    (raw.github_commits has no ticket column), so the two are joined on sha
+    here rather than the caller stitching them together.
+
+    Also returns their captured-knowledge counts. Draft *content* is
+    deliberately never included — see team_continuity above.
+    """
+    pool = request.app.state.pool
+    eid = engagement_id or LIVE_JIRA_ENGAGEMENT_ID
+    key = _person_key(name)
+
+    rows = await pool.fetch(
+        """
+        SELECT c.sha, c.message, c.committed_at, c.repo, c.files_changed
+        FROM raw.github_commits c
+        WHERE replace(lower(c.author), '_', ' ') = $1
+        ORDER BY c.committed_at DESC
+        LIMIT $2
+        """,
+        key,
+        limit,
+    )
+
+    shas = [r["sha"] for r in rows]
+    refs_by_sha: dict = {}
+    if shas:
+        ref_rows = await pool.fetch(
+            """
+            SELECT c.metadata->>'sha' AS sha, ref AS ticket_key
+            FROM public.chunks c,
+                 jsonb_array_elements_text(c.metadata->'ticket_refs') AS ref
+            WHERE c.source_type = 'github_commit'
+              AND c.engagement_id = $1
+              AND c.metadata ? 'ticket_refs'
+              AND c.metadata->>'sha' = ANY($2::text[])
+            """,
+            eid,
+            shas,
+        )
+        for r in ref_rows:
+            refs_by_sha.setdefault(r["sha"], []).append(r["ticket_key"])
+
+    email = await pool.fetchval(
+        "SELECT email FROM public.project_staffing "
+        "WHERE engagement_id = $1 AND replace(lower(name), '_', ' ') = $2",
+        eid,
+        key,
+    )
+    note_counts: dict = {}
+    if email:
+        for r in await pool.fetch(
+            "SELECT status, COUNT(*) AS n FROM zone3.scratchpad_notes "
+            "WHERE engagement_id = $1 AND lower(email) = lower($2) GROUP BY status",
+            eid,
+            email,
+        ):
+            note_counts[r["status"]] = r["n"]
+
+    return {
+        "name": name,
+        "email": email,
+        "commits": [
+            {
+                "sha": r["sha"],
+                "sha_short": r["sha"][:7],
+                "message": (r["message"] or "").splitlines()[0] if r["message"] else "",
+                "committed_at": r["committed_at"].isoformat() if r["committed_at"] else None,
+                "repo": r["repo"],
+                "files_changed": r["files_changed"],
+                "ticket_refs": refs_by_sha.get(r["sha"], []),
+            }
+            for r in rows
+        ],
+        "notes_approved": note_counts.get("approved", 0) + note_counts.get("promoted", 0),
+        "notes_draft": note_counts.get("draft", 0),
+    }
 
 
 @router.get("/api/project/epics")
@@ -312,7 +563,17 @@ async def sprint_history():
             continue
         issues = await jira_client.sprint_issues(s["id"])
         n = len(issues)
-        done = sum(1 for i in issues if _status_category(i) == DONE_CATEGORY)
+        # jira_client.sprint_issues() returns raw Jira Agile-API issue dicts
+        # ({"fields": {"status": {...}}}), not the normalized shape
+        # _normalize_live() produces — _status_category(i)["status_category"]
+        # would KeyError here. Read the status category straight off the
+        # raw field instead of routing through the live/mock-issue helper.
+        done = sum(
+            1
+            for i in issues
+            if (i.get("fields", {}).get("status", {}).get("statusCategory", {}) or {}).get("name")
+            == DONE_CATEGORY
+        )
         result.append(
             {
                 "id": s["id"],
@@ -398,6 +659,54 @@ async def risk_signals(
                 "detail": "Labeled reopened in Jira — possible regressions.",
             }
         )
+
+    # Sync with Scratchpad: a manager's risk view should surface knowledge
+    # that's about to be silently lost, not just Jira label counts. Scoped
+    # to this same engagement so it reads Team-level risk for whichever
+    # project is being viewed, same as everything else on this endpoint.
+    scratchpad_engagement_id = engagement_id or LIVE_JIRA_ENGAGEMENT_ID
+    pool = request.app.state.pool
+    expiring_soon_days = max(DRAFT_TTL_DAYS - 2, 0)
+    expiring = await pool.fetchval(
+        """
+        SELECT COUNT(*) FROM zone3.scratchpad_notes
+        WHERE engagement_id = $1 AND status = 'draft'
+          AND created_at < NOW() - make_interval(days => $2)
+        """,
+        scratchpad_engagement_id,
+        expiring_soon_days,
+    )
+    if expiring:
+        signals.append(
+            {
+                "level": "high",
+                "title": f"{expiring} knowledge draft{'s' if expiring != 1 else ''} expiring soon in Scratchpad",
+                "detail": f"Auto-drafted notes are dismissed if unreviewed after {DRAFT_TTL_DAYS} days — nudge the developer to review.",
+            }
+        )
+    # Worthy fixes (is_note_worthy passed) that never became a note — usually
+    # because the Jira assignee couldn't be matched to project_staffing.
+    # Not a perfect signal (a developer may have reviewed and dismissed one
+    # on purpose), but a useful "knowledge may be leaking" nudge.
+    uncaptured = await pool.fetchval(
+        """
+        SELECT COUNT(*) FROM zone3.scratchpad_draft_candidates c
+        WHERE c.engagement_id = $1 AND c.worthy = TRUE
+          AND NOT EXISTS (
+              SELECT 1 FROM zone3.scratchpad_notes n
+              WHERE n.engagement_id = c.engagement_id AND n.source_ticket = c.ticket_key
+          )
+        """,
+        scratchpad_engagement_id,
+    )
+    if uncaptured:
+        signals.append(
+            {
+                "level": "medium",
+                "title": f"{uncaptured} notable fix{'es' if uncaptured != 1 else ''} captured no knowledge note",
+                "detail": "Flagged note-worthy, but no Scratchpad note exists — likely no staffing match for the Jira assignee.",
+            }
+        )
     return signals
 
 
@@ -435,10 +744,19 @@ async def activity(request: Request):
 
 @router.get("/api/project/team-activity")
 async def team_activity(request: Request):
-    """Per-person Ask Project + Scratchpad usage, real — joined by the app's
-    own Prisma user id (zone3.chat_sessions.user_id / scratchpad_notes.user_id),
-    not by Jira identity. The frontend joins this to a person by id, separately
-    from the Jira-name join /api/project/team uses.
+    """Per-person Ask Project usage, real — joined by the app's own Prisma
+    user id (zone3.chat_sessions.user_id). The frontend joins this to a
+    person by id, separately from the Jira-name join /api/project/team uses.
+
+    Scratchpad notes are deliberately NOT joined in here: zone3.scratchpad_
+    notes is keyed by email, not Prisma user id (see api/scratchpad.py's
+    module docstring — an auto-draft can be created with no logged-in
+    frontend session at all, so email is the only identity value both paths
+    can independently produce). There is no cross-database join available
+    from here to translate one to the other, and the frontend's rendered
+    columns never consumed a notes_captured value from this endpoint, so
+    this only ever reports chat activity now rather than silently querying
+    a column ("user_id" on scratchpad_notes) that no longer exists.
     """
     pool = request.app.state.pool
     question_rows = await pool.fetch(
@@ -450,25 +768,17 @@ async def team_activity(request: Request):
         GROUP BY s.user_id
         """
     )
-    note_rows = await pool.fetch(
-        "SELECT user_id, COUNT(*) AS n FROM zone3.scratchpad_notes GROUP BY user_id"
-    )
 
     questions = {r["user_id"]: r["n"] for r in question_rows}
-    notes = {r["user_id"]: r["n"] for r in note_rows}
     total_questions = sum(questions.values())
-    user_ids = set(questions) | set(notes)
 
     return [
         {
             "user_id": uid,
-            "questions_asked": questions.get(uid, 0),
-            "notes_captured": notes.get(uid, 0),
-            "chat_usage_pct": round(questions.get(uid, 0) / total_questions * 100, 1)
-            if total_questions
-            else 0,
+            "questions_asked": n,
+            "chat_usage_pct": round(n / total_questions * 100, 1) if total_questions else 0,
         }
-        for uid in user_ids
+        for uid, n in questions.items()
     ]
 
 

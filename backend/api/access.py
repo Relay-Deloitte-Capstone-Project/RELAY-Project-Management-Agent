@@ -1,23 +1,32 @@
 """Per-project access control (SOW deliverable D6).
 
-public.project_members (database/project_members.sql) decides who can read
-which project's data. The rule enforced here:
+public.project_staffing (database/project_staffing.sql) decides who can read
+which project's data — the rule enforced here is "you read only projects
+you have a staffing row on."
 
-  - ADMIN (Prisma "User".role) reads every project, membership row or not —
-    an admin who just created a project in the setup wizard can use it
-    immediately without adding themselves first.
-  - Everyone else reads only projects they hold a membership row for.
+Originally written against a Postgres-side "User" table (role lookup +
+user_id FK), on the assumption Prisma's login identity lived in this same
+Postgres database. It doesn't — this app's users are Prisma/SQLite
+(prisma/schema.prisma, provider "sqlite"), a completely separate database
+the Python backend has no query access to. That made every call here 500
+with "relation \"User\" does not exist". Rewritten to key off email instead
+(the one piece of identity the Node frontend already has and already sends
+elsewhere — see src/lib/admin/useMyProject.ts), matched against
+project_staffing.email, the same table admin_projects.py's staffing
+endpoints already use.
+
+Dropped along with it: the ADMIN role bypass ("admins read every project
+even with no staffing row"). Ask Project is developer-only in the actual UI
+(see AppShell.tsx's nav — no /dev/ask entry for MANAGER or ADMIN), and there
+is no Postgres-side signal for login role without the User table this
+module can no longer assume exists. If admin-wide access to Ask Project is
+wanted later, that needs either a real cross-database role lookup or a
+staffing row per admin per project — not guessed at here.
 
 require_access() is called by the Ask Project paths (api/sessions.py on
 session creation AND on every message — so revoking a membership takes
 effect on the user's next query, per D6's "no cache flush or restart") and
 optionally by api/query.py.
-
-Auth caveat, unchanged from before: the Python backend trusts the user_id
-the Node frontend sends — it can't verify the JWT session cookie itself
-(src/lib/auth/session.server.ts stays on the Node side). This module
-controls what a given user_id may reach; it doesn't prove the caller is
-that user.
 """
 
 import asyncpg
@@ -25,59 +34,40 @@ from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter()
 
-ADMIN_ROLE = "ADMIN"
 
-
-async def can_access(pool: asyncpg.Pool, user_id: str, engagement_id: str) -> bool:
-    role = await pool.fetchval('SELECT role FROM "User" WHERE id = $1', user_id)
-    if role is None:
+async def can_access(pool: asyncpg.Pool, email: str, engagement_id: str) -> bool:
+    if not email:
         return False
-    if role == ADMIN_ROLE:
-        return True
     return bool(
         await pool.fetchval(
-            "SELECT 1 FROM public.project_members WHERE engagement_id = $1 AND user_id = $2",
+            "SELECT 1 FROM public.project_staffing WHERE lower(email) = lower($1) AND engagement_id = $2",
+            email,
             engagement_id,
-            user_id,
         )
     )
 
 
-async def require_access(pool: asyncpg.Pool, user_id: str, engagement_id: str):
-    if not await can_access(pool, user_id, engagement_id):
+async def require_access(pool: asyncpg.Pool, email: str, engagement_id: str):
+    if not await can_access(pool, email, engagement_id):
         raise HTTPException(
             status_code=403, detail="You are not a member of this project"
         )
 
 
 @router.get("/api/my-projects")
-async def my_projects(user_id: str, request: Request):
+async def my_projects(email: str, request: Request):
     """The projects this user may read — drives the Ask Project project
-    picker, which replaces the old hardcoded proj-001. ADMINs get every
-    project; others get only their memberships. Empty list means "not
-    assigned anywhere yet", which the UI renders as an empty state."""
+    picker, which replaces the old hardcoded proj-001. Empty list means
+    "not assigned anywhere yet", which the UI renders as an empty state."""
     pool: asyncpg.Pool = request.app.state.pool
-    role = await pool.fetchval('SELECT role FROM "User" WHERE id = $1', user_id)
-    if role is None:
-        raise HTTPException(status_code=404, detail="Unknown user")
-
-    if role == ADMIN_ROLE:
-        rows = await pool.fetch(
-            """
-            SELECT engagement_id, name, client_name, status
-            FROM public.projects
-            ORDER BY created_at DESC
-            """
-        )
-    else:
-        rows = await pool.fetch(
-            """
-            SELECT p.engagement_id, p.name, p.client_name, p.status
-            FROM public.project_members pm
-            JOIN public.projects p ON p.engagement_id = pm.engagement_id
-            WHERE pm.user_id = $1
-            ORDER BY p.created_at DESC
-            """,
-            user_id,
-        )
+    rows = await pool.fetch(
+        """
+        SELECT p.engagement_id, p.name, p.client_name, p.status
+        FROM public.project_staffing s
+        JOIN public.projects p ON p.engagement_id = s.engagement_id
+        WHERE lower(s.email) = lower($1) AND p.status != 'archived'
+        ORDER BY p.created_at DESC
+        """,
+        email,
+    )
     return [dict(r) for r in rows]

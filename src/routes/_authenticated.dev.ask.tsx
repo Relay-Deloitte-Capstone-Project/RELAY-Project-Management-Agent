@@ -43,10 +43,10 @@ export const Route = createFileRoute("/_authenticated/dev/ask")({
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
 // Which projects this user may read is resolved server-side
-// (GET /api/my-projects, backed by public.project_members —
-// backend/api/access.py). Nothing project-related is hardcoded here anymore:
-// a developer sees exactly the projects an admin assigned them, an admin
-// sees them all.
+// (GET /api/my-projects, backed by public.project_staffing, checked by
+// email — backend/api/access.py). Nothing project-related is hardcoded
+// here anymore: a developer sees exactly the projects an admin staffed
+// them on.
 type ProjectOption = {
   engagement_id: string;
   name: string;
@@ -114,10 +114,10 @@ function listSessions(userId: string, engagementId: string) {
   );
 }
 
-function createSession(userId: string, engagementId: string) {
+function createSession(userId: string, engagementId: string, email: string) {
   return apiCall<{ session_id: string; created_at: string }>("/api/sessions", {
     method: "POST",
-    body: JSON.stringify({ user_id: userId, engagement_id: engagementId }),
+    body: JSON.stringify({ user_id: userId, engagement_id: engagementId, email }),
   });
 }
 
@@ -134,10 +134,16 @@ function getSessionMessages(sessionId: string, userId: string) {
   );
 }
 
-function sendSessionMessage(sessionId: string, userId: string, question: string, userName?: string) {
+function sendSessionMessage(
+  sessionId: string,
+  userId: string,
+  question: string,
+  email: string,
+  userName?: string,
+) {
   return apiCall<QueryResponse>(`/api/sessions/${sessionId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ user_id: userId, question, user_name: userName }),
+    body: JSON.stringify({ user_id: userId, question, email, user_name: userName }),
   });
 }
 
@@ -226,7 +232,7 @@ function AskProject() {
     (async () => {
       try {
         const list = await apiCall<ProjectOption[]>(
-          `/api/my-projects?user_id=${encodeURIComponent(user.id)}`,
+          `/api/my-projects?email=${encodeURIComponent(user.email)}`,
         );
         if (cancelled) return;
         setProjects(list);
@@ -240,7 +246,7 @@ function AskProject() {
     return () => {
       cancelled = true;
     };
-  }, [user.id]);
+  }, [user.email]);
 
   // Resume the most recent conversation in the SELECTED project on load /
   // on project switch, instead of always starting blank — a session is only
@@ -317,11 +323,11 @@ function AskProject() {
       let sid = sessionId;
       const isNewSession = !sid;
       if (!sid) {
-        sid = (await createSession(user.id, engagementId)).session_id;
+        sid = (await createSession(user.id, engagementId, user.email)).session_id;
         setSessionId(sid);
       }
 
-      const data = await sendSessionMessage(sid, user.id, question, user.name);
+      const data = await sendSessionMessage(sid, user.id, question, user.email, user.name);
       const timingSeconds = data.timing_seconds ?? (performance.now() - clientStart) / 1000;
 
       const reply: Message = data.abstained
@@ -340,9 +346,7 @@ function AskProject() {
       if (isNewSession) void refreshSessions();
       else
         setSessions((s) =>
-          s.map((x) =>
-            x.id === sid ? { ...x, title: x.title ?? question.slice(0, 60) } : x,
-          ),
+          s.map((x) => (x.id === sid ? { ...x, title: x.title ?? question.slice(0, 60) } : x)),
         );
     } catch (err) {
       setMessages((m) => [
@@ -443,9 +447,7 @@ function AskProject() {
                       <div
                         className={cn(
                           "group flex w-full items-center gap-1 rounded-md px-2.5 py-2 text-left transition-colors duration-150",
-                          s.id === sessionId
-                            ? "bg-brand-soft"
-                            : "hover:bg-surface-sunken",
+                          s.id === sessionId ? "bg-brand-soft" : "hover:bg-surface-sunken",
                         )}
                       >
                         <button
@@ -460,9 +462,7 @@ function AskProject() {
                             )}
                           >
                             <MessageSquare className="size-3 shrink-0 text-mute" />
-                            <span className="truncate">
-                              {s.title ?? "Untitled conversation"}
-                            </span>
+                            <span className="truncate">{s.title ?? "Untitled conversation"}</span>
                           </span>
                           <span className="mt-0.5 block pl-[18px] text-[11px] text-mute">
                             {sessionDate(s.created_at)} · {s.message_count} message
@@ -476,11 +476,7 @@ function AskProject() {
                           title="Delete conversation"
                           className="shrink-0 rounded p-1 text-mute opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:text-danger disabled:opacity-40 [&_svg]:size-3.5"
                         >
-                          {deletingId === s.id ? (
-                            <Loader2 className="animate-spin" />
-                          ) : (
-                            <Trash2 />
-                          )}
+                          {deletingId === s.id ? <Loader2 className="animate-spin" /> : <Trash2 />}
                         </button>
                       </div>
                     </li>
@@ -495,7 +491,9 @@ function AskProject() {
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-6">
             <div className="flex items-center gap-2">
               {!sidebarOpen && sidebarToggle}
-              <p className="section-label">Conversation · grounded in this project&apos;s records</p>
+              <p className="section-label">
+                Conversation · grounded in this project&apos;s records
+              </p>
             </div>
 
             {loadingHistory ? (
@@ -556,7 +554,9 @@ function AskProject() {
                           key={s.source_doc_id}
                           type="button"
                           onClick={() =>
-                            setOpenCitation(openCitation === s.source_doc_id ? null : s.source_doc_id)
+                            setOpenCitation(
+                              openCitation === s.source_doc_id ? null : s.source_doc_id,
+                            )
                           }
                           className="mx-0.5 rounded-[3px] bg-brand-soft px-[5px] py-[1px] font-mono text-[11px] font-semibold text-brand"
                         >
@@ -571,7 +571,9 @@ function AskProject() {
                           key={s.source_doc_id}
                           className="mt-2 border-l-[3px] border-brand bg-surface-sunken p-2 text-[13px] leading-relaxed text-mute"
                         >
-                          <span className="font-mono font-semibold text-brand">{s.source_doc_id}</span>{" "}
+                          <span className="font-mono font-semibold text-brand">
+                            {s.source_doc_id}
+                          </span>{" "}
                           ({s.source_type}) — {s.snippet}
                         </div>
                       ))}

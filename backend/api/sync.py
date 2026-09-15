@@ -37,6 +37,7 @@ from starlette.concurrency import run_in_threadpool
 from api import github_client, jira_client
 from api.intents import _adf_text
 from api.query import DEFAULT_ENGAGEMENT_ID, embed, to_pgvector
+from api.scratchpad_triggers import DONE_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,13 @@ async def upsert_jira_issue(pool, model, issue: dict) -> str:
     created = f.get("created")
     updated = f.get("updated")
 
+    # Single indexed PK lookup — cheap enough not to worry about, and only
+    # runs for tickets this sync pass already touched (the JQL cursor limits
+    # that set to what changed since last poll, never the whole board).
+    previous_status = await pool.fetchval(
+        "SELECT status FROM raw.jira_tickets WHERE ticket_key = $1", key
+    )
+
     await pool.execute(
         """
         INSERT INTO raw.jira_tickets
@@ -190,6 +198,22 @@ async def upsert_jira_issue(pool, model, issue: dict) -> str:
         _parse_dt(updated),
         json.dumps(issue),
     )
+
+    # Enqueue for the separate Scratchpad auto-draft evaluation step — a
+    # single fire-and-forget INSERT, no network/LLM call here. Only fires on
+    # the transition INTO a done state (not every poll while it stays done),
+    # and evaluate_candidates() (api/scratchpad_triggers.py) runs on its own
+    # asyncio task, so nothing below this line can slow sync_jira() itself.
+    if status in DONE_STATUSES and previous_status not in DONE_STATUSES:
+        await pool.execute(
+            """
+            INSERT INTO zone3.scratchpad_draft_candidates (engagement_id, ticket_key)
+            VALUES ($1, $2)
+            ON CONFLICT (engagement_id, ticket_key) DO NOTHING
+            """,
+            DEFAULT_ENGAGEMENT_ID,
+            key,
+        )
 
     # Same "Ticket KEY: summary. description" shape the dumped chunks use, so
     # unchanged tickets compare equal and are never pointlessly re-embedded.

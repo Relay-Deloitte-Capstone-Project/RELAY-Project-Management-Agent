@@ -18,7 +18,7 @@ import { Route as AuthenticatedMgrRouteImport } from './routes/_authenticated.mg
 import { Route as AuthenticatedAdminAccessRouteImport } from './routes/_authenticated.admin.access'
 import { Route as AuthenticatedAdminConfigRouteImport } from './routes/_authenticated.admin.config'
 import { Route as AuthenticatedAdminDashboardRouteImport } from './routes/_authenticated.admin.dashboard'
-import { Route as AuthenticatedAdminDeliverablesRouteImport } from './routes/_authenticated.admin.deliverables'
+import { Route as AuthenticatedAdminDocumentsRouteImport } from './routes/_authenticated.admin.documents'
 import { Route as AuthenticatedAdminGovernanceRouteImport } from './routes/_authenticated.admin.governance'
 import { Route as AuthenticatedAdminIngestionRouteImport } from './routes/_authenticated.admin.ingestion'
 import { Route as AuthenticatedAdminProjectSetupRouteImport } from './routes/_authenticated.admin.project-setup'
@@ -30,7 +30,7 @@ import { Route as AuthenticatedDevEpicsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedDevScratchpadRouteImport } from './routes/_authenticated.dev.scratchpad'
 import { Route as AuthenticatedDevWorkRouteImport } from './routes/_authenticated.dev.work'
 import { Route as AuthenticatedMgrDashboardRouteImport } from './routes/_authenticated.mgr.dashboard'
-import { Route as AuthenticatedMgrDeliverablesRouteImport } from './routes/_authenticated.mgr.deliverables'
+import { Route as AuthenticatedMgrDocumentsRouteImport } from './routes/_authenticated.mgr.documents'
 import { Route as AuthenticatedMgrEpicsRouteImport } from './routes/_authenticated.mgr.epics'
 import { Route as AuthenticatedMgrHandoverKitRouteImport } from './routes/_authenticated.mgr.handover-kit'
 import { Route as AuthenticatedMgrOnboardingKitRouteImport } from './routes/_authenticated.mgr.onboarding-kit'
@@ -89,10 +89,10 @@ const AuthenticatedAdminDashboardRoute =
     path: '/dashboard',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
-const AuthenticatedAdminDeliverablesRoute =
-  AuthenticatedAdminDeliverablesRouteImport.update({
-    id: '/deliverables',
-    path: '/deliverables',
+const AuthenticatedAdminDocumentsRoute =
+  AuthenticatedAdminDocumentsRouteImport.update({
+    id: '/documents',
+    path: '/documents',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
 const AuthenticatedAdminGovernanceRoute =
@@ -157,10 +157,10 @@ const AuthenticatedMgrDashboardRoute =
     path: '/dashboard',
     getParentRoute: () => AuthenticatedMgrRoute,
   } as any)
-const AuthenticatedMgrDeliverablesRoute =
-  AuthenticatedMgrDeliverablesRouteImport.update({
-    id: '/deliverables',
-    path: '/deliverables',
+const AuthenticatedMgrDocumentsRoute =
+  AuthenticatedMgrDocumentsRouteImport.update({
+    id: '/documents',
+    path: '/documents',
     getParentRoute: () => AuthenticatedMgrRoute,
   } as any)
 const AuthenticatedMgrEpicsRoute = AuthenticatedMgrEpicsRouteImport.update({
@@ -229,7 +229,7 @@ export interface FileRoutesByFullPath {
   '/admin/access': typeof AuthenticatedAdminAccessRoute
   '/admin/config': typeof AuthenticatedAdminConfigRoute
   '/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
-  '/admin/deliverables': typeof AuthenticatedAdminDeliverablesRoute
+  '/admin/documents': typeof AuthenticatedAdminDocumentsRoute
   '/admin/governance': typeof AuthenticatedAdminGovernanceRoute
   '/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
   '/admin/project-setup': typeof AuthenticatedAdminProjectSetupRoute
@@ -241,7 +241,7 @@ export interface FileRoutesByFullPath {
   '/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
   '/dev/work': typeof AuthenticatedDevWorkRoute
   '/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
-  '/mgr/deliverables': typeof AuthenticatedMgrDeliverablesRoute
+  '/mgr/documents': typeof AuthenticatedMgrDocumentsRoute
   '/mgr/epics': typeof AuthenticatedMgrEpicsRoute
   '/mgr/handover-kit': typeof AuthenticatedMgrHandoverKitRoute
   '/mgr/onboarding-kit': typeof AuthenticatedMgrOnboardingKitRoute
@@ -262,7 +262,7 @@ export interface FileRoutesByTo {
   '/admin/access': typeof AuthenticatedAdminAccessRoute
   '/admin/config': typeof AuthenticatedAdminConfigRoute
   '/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
-  '/admin/deliverables': typeof AuthenticatedAdminDeliverablesRoute
+  '/admin/documents': typeof AuthenticatedAdminDocumentsRoute
   '/admin/governance': typeof AuthenticatedAdminGovernanceRoute
   '/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
   '/admin/project-setup': typeof AuthenticatedAdminProjectSetupRoute
@@ -274,7 +274,7 @@ export interface FileRoutesByTo {
   '/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
   '/dev/work': typeof AuthenticatedDevWorkRoute
   '/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
-  '/mgr/deliverables': typeof AuthenticatedMgrDeliverablesRoute
+  '/mgr/documents': typeof AuthenticatedMgrDocumentsRoute
   '/mgr/epics': typeof AuthenticatedMgrEpicsRoute
   '/mgr/handover-kit': typeof AuthenticatedMgrHandoverKitRoute
   '/mgr/onboarding-kit': typeof AuthenticatedMgrOnboardingKitRoute
@@ -296,7 +296,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/access': typeof AuthenticatedAdminAccessRoute
   '/_authenticated/admin/config': typeof AuthenticatedAdminConfigRoute
   '/_authenticated/admin/dashboard': typeof AuthenticatedAdminDashboardRoute
-  '/_authenticated/admin/deliverables': typeof AuthenticatedAdminDeliverablesRoute
+  '/_authenticated/admin/documents': typeof AuthenticatedAdminDocumentsRoute
   '/_authenticated/admin/governance': typeof AuthenticatedAdminGovernanceRoute
   '/_authenticated/admin/ingestion': typeof AuthenticatedAdminIngestionRoute
   '/_authenticated/admin/project-setup': typeof AuthenticatedAdminProjectSetupRoute
@@ -308,7 +308,7 @@ export interface FileRoutesById {
   '/_authenticated/dev/scratchpad': typeof AuthenticatedDevScratchpadRoute
   '/_authenticated/dev/work': typeof AuthenticatedDevWorkRoute
   '/_authenticated/mgr/dashboard': typeof AuthenticatedMgrDashboardRoute
-  '/_authenticated/mgr/deliverables': typeof AuthenticatedMgrDeliverablesRoute
+  '/_authenticated/mgr/documents': typeof AuthenticatedMgrDocumentsRoute
   '/_authenticated/mgr/epics': typeof AuthenticatedMgrEpicsRoute
   '/_authenticated/mgr/handover-kit': typeof AuthenticatedMgrHandoverKitRoute
   '/_authenticated/mgr/onboarding-kit': typeof AuthenticatedMgrOnboardingKitRoute
@@ -331,7 +331,7 @@ export interface FileRouteTypes {
     | '/admin/access'
     | '/admin/config'
     | '/admin/dashboard'
-    | '/admin/deliverables'
+    | '/admin/documents'
     | '/admin/governance'
     | '/admin/ingestion'
     | '/admin/project-setup'
@@ -343,7 +343,7 @@ export interface FileRouteTypes {
     | '/dev/scratchpad'
     | '/dev/work'
     | '/mgr/dashboard'
-    | '/mgr/deliverables'
+    | '/mgr/documents'
     | '/mgr/epics'
     | '/mgr/handover-kit'
     | '/mgr/onboarding-kit'
@@ -364,7 +364,7 @@ export interface FileRouteTypes {
     | '/admin/access'
     | '/admin/config'
     | '/admin/dashboard'
-    | '/admin/deliverables'
+    | '/admin/documents'
     | '/admin/governance'
     | '/admin/ingestion'
     | '/admin/project-setup'
@@ -376,7 +376,7 @@ export interface FileRouteTypes {
     | '/dev/scratchpad'
     | '/dev/work'
     | '/mgr/dashboard'
-    | '/mgr/deliverables'
+    | '/mgr/documents'
     | '/mgr/epics'
     | '/mgr/handover-kit'
     | '/mgr/onboarding-kit'
@@ -397,7 +397,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/access'
     | '/_authenticated/admin/config'
     | '/_authenticated/admin/dashboard'
-    | '/_authenticated/admin/deliverables'
+    | '/_authenticated/admin/documents'
     | '/_authenticated/admin/governance'
     | '/_authenticated/admin/ingestion'
     | '/_authenticated/admin/project-setup'
@@ -409,7 +409,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dev/scratchpad'
     | '/_authenticated/dev/work'
     | '/_authenticated/mgr/dashboard'
-    | '/_authenticated/mgr/deliverables'
+    | '/_authenticated/mgr/documents'
     | '/_authenticated/mgr/epics'
     | '/_authenticated/mgr/handover-kit'
     | '/_authenticated/mgr/onboarding-kit'
@@ -493,11 +493,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminDashboardRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
-    '/_authenticated/admin/deliverables': {
-      id: '/_authenticated/admin/deliverables'
-      path: '/deliverables'
-      fullPath: '/admin/deliverables'
-      preLoaderRoute: typeof AuthenticatedAdminDeliverablesRouteImport
+    '/_authenticated/admin/documents': {
+      id: '/_authenticated/admin/documents'
+      path: '/documents'
+      fullPath: '/admin/documents'
+      preLoaderRoute: typeof AuthenticatedAdminDocumentsRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
     '/_authenticated/admin/governance': {
@@ -577,11 +577,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMgrDashboardRouteImport
       parentRoute: typeof AuthenticatedMgrRoute
     }
-    '/_authenticated/mgr/deliverables': {
-      id: '/_authenticated/mgr/deliverables'
-      path: '/deliverables'
-      fullPath: '/mgr/deliverables'
-      preLoaderRoute: typeof AuthenticatedMgrDeliverablesRouteImport
+    '/_authenticated/mgr/documents': {
+      id: '/_authenticated/mgr/documents'
+      path: '/documents'
+      fullPath: '/mgr/documents'
+      preLoaderRoute: typeof AuthenticatedMgrDocumentsRouteImport
       parentRoute: typeof AuthenticatedMgrRoute
     }
     '/_authenticated/mgr/epics': {
@@ -661,7 +661,7 @@ interface AuthenticatedAdminRouteChildren {
   AuthenticatedAdminAccessRoute: typeof AuthenticatedAdminAccessRoute
   AuthenticatedAdminConfigRoute: typeof AuthenticatedAdminConfigRoute
   AuthenticatedAdminDashboardRoute: typeof AuthenticatedAdminDashboardRoute
-  AuthenticatedAdminDeliverablesRoute: typeof AuthenticatedAdminDeliverablesRoute
+  AuthenticatedAdminDocumentsRoute: typeof AuthenticatedAdminDocumentsRoute
   AuthenticatedAdminGovernanceRoute: typeof AuthenticatedAdminGovernanceRoute
   AuthenticatedAdminIngestionRoute: typeof AuthenticatedAdminIngestionRoute
   AuthenticatedAdminProjectSetupRoute: typeof AuthenticatedAdminProjectSetupRoute
@@ -674,7 +674,7 @@ const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
   AuthenticatedAdminAccessRoute: AuthenticatedAdminAccessRoute,
   AuthenticatedAdminConfigRoute: AuthenticatedAdminConfigRoute,
   AuthenticatedAdminDashboardRoute: AuthenticatedAdminDashboardRoute,
-  AuthenticatedAdminDeliverablesRoute: AuthenticatedAdminDeliverablesRoute,
+  AuthenticatedAdminDocumentsRoute: AuthenticatedAdminDocumentsRoute,
   AuthenticatedAdminGovernanceRoute: AuthenticatedAdminGovernanceRoute,
   AuthenticatedAdminIngestionRoute: AuthenticatedAdminIngestionRoute,
   AuthenticatedAdminProjectSetupRoute: AuthenticatedAdminProjectSetupRoute,
@@ -738,7 +738,7 @@ const AuthenticatedMgrTeamRouteWithChildren =
 
 interface AuthenticatedMgrRouteChildren {
   AuthenticatedMgrDashboardRoute: typeof AuthenticatedMgrDashboardRoute
-  AuthenticatedMgrDeliverablesRoute: typeof AuthenticatedMgrDeliverablesRoute
+  AuthenticatedMgrDocumentsRoute: typeof AuthenticatedMgrDocumentsRoute
   AuthenticatedMgrEpicsRoute: typeof AuthenticatedMgrEpicsRoute
   AuthenticatedMgrHandoverKitRoute: typeof AuthenticatedMgrHandoverKitRoute
   AuthenticatedMgrOnboardingKitRoute: typeof AuthenticatedMgrOnboardingKitRoute
@@ -748,7 +748,7 @@ interface AuthenticatedMgrRouteChildren {
 
 const AuthenticatedMgrRouteChildren: AuthenticatedMgrRouteChildren = {
   AuthenticatedMgrDashboardRoute: AuthenticatedMgrDashboardRoute,
-  AuthenticatedMgrDeliverablesRoute: AuthenticatedMgrDeliverablesRoute,
+  AuthenticatedMgrDocumentsRoute: AuthenticatedMgrDocumentsRoute,
   AuthenticatedMgrEpicsRoute: AuthenticatedMgrEpicsRoute,
   AuthenticatedMgrHandoverKitRoute: AuthenticatedMgrHandoverKitRoute,
   AuthenticatedMgrOnboardingKitRoute: AuthenticatedMgrOnboardingKitRoute,
