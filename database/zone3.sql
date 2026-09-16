@@ -127,3 +127,103 @@ CREATE INDEX IF NOT EXISTS idx_scratchpad_fts
 -- user can reuse that answer, provided every cited chunk is unchanged since.
 -- No vector index: per-user message volume is small enough for a seq scan.
 ALTER TABLE zone3.chat_messages ADD COLUMN IF NOT EXISTS embedding VECTOR(384);
+
+-- Auto-draft candidate queue (Scratchpad Feature 5's pre-filter step).
+-- sync_jira() (api/sync.py) enqueues a row the moment a ticket's status
+-- transitions into a done state — one cheap INSERT on an already-changed
+-- ticket, no network/LLM calls, so it adds no meaningful latency to the
+-- Jira/GitHub poll it runs inside.
+--
+-- A separate, independently-scheduled task (api.scratchpad_triggers.
+-- evaluate_candidates(), its own asyncio task in main.py — never the same
+-- one sync_jira() runs on) drains this queue: runs the free is_note_worthy()
+-- check, and later the LLM distillation step, entirely decoupled from the
+-- sync loop's timing.
+--
+-- UNIQUE(engagement_id, ticket_key) means a ticket is only ever queued once
+-- in its lifetime, even if it's reopened and closed again later — accepted
+-- tradeoff for now; revisit if reopen-and-refix turns out to be common
+-- enough to matter.
+CREATE TABLE IF NOT EXISTS zone3.scratchpad_draft_candidates (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    engagement_id TEXT NOT NULL,
+    ticket_key    TEXT NOT NULL,
+    detected_at   TIMESTAMPTZ DEFAULT NOW(),
+    evaluated_at  TIMESTAMPTZ,
+    worthy        BOOLEAN,
+    reasons       TEXT[],
+    UNIQUE (engagement_id, ticket_key)
+);
+
+-- The consumer step's own query pattern: "give me what's unevaluated,
+-- oldest first" — never needs to scan already-processed rows.
+CREATE INDEX IF NOT EXISTS idx_scratchpad_candidates_pending
+    ON zone3.scratchpad_draft_candidates (detected_at)
+    WHERE evaluated_at IS NULL;
+
+-- provenance_ids: the public.chunks ids (the github_commit chunks) an
+-- auto-drafted note was distilled from. NOT NULL means this note is still
+-- "machine-made from the client's data" — that's exactly what the R9
+-- offboarding cascade keys on (see api.scratchpad_triggers.
+-- cascade_delete_engagement): a client leaving deletes every note whose
+-- provenance_ids is still set, even one a developer already saw and never
+-- touched, because "private" only ever meant who could see it, not whether
+-- Relay was allowed to keep holding onto client-derived content.
+--
+-- approveNote (PATCH .../approve, api/scratchpad.py) sets this to NULL —
+-- "provenance cut": from that moment the note is a human-made artifact
+-- (the developer read it, judged it worth keeping, and owns that judgment)
+-- and survives the cascade. This is the one column manual notes never have
+-- a value in either — they never had provenance to cut.
+--
+-- source_ticket is the Jira key an auto-draft came from — kept distinct
+-- from source_pr (a real GitHub PR number the check-pr-update feature calls
+-- the GitHub API with). This engagement's commits land directly on main
+-- with no PR, so auto-drafted notes are ticket-sourced, not PR-sourced;
+-- source_pr stays NULL for them.
+ALTER TABLE zone3.scratchpad_notes ADD COLUMN IF NOT EXISTS provenance_ids UUID[];
+ALTER TABLE zone3.scratchpad_notes ADD COLUMN IF NOT EXISTS source_ticket TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_scratchpad_provenance
+    ON zone3.scratchpad_notes (engagement_id)
+    WHERE provenance_ids IS NOT NULL;
+
+-- Promotion is append-only per the spec ("Log who, when") — a status flip
+-- alone loses the record if a note is ever promoted more than once, or if
+-- an audit needs to show who made the team-KB decision after the fact.
+CREATE TABLE IF NOT EXISTS zone3.scratchpad_promotions (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    note_id    UUID NOT NULL REFERENCES zone3.scratchpad_notes(id) ON DELETE CASCADE,
+    email      TEXT NOT NULL,
+    promoted_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Scratchpad identity: email, not the Prisma user id.
+--
+-- Unlike zone3.chat_sessions/chat_messages (still user_id, unchanged —
+-- those rows are only ever created by a real logged-in frontend request, so
+-- whatever id the frontend already sends consistently works fine), a
+-- Scratchpad note can also be created unilaterally by the backend itself
+-- (an auto-draft, born from a Jira ticket transition — see
+-- api/scratchpad_triggers.py), with no frontend request and therefore no
+-- Prisma user id in hand at all. Email is the one identity value both
+-- sides can independently produce: the frontend already has it on the
+-- logged-in session, and the backend can resolve a Jira assignee's name to
+-- it via public.project_staffing (the same table api/access.py now checks
+-- access against). So a manual note and an auto-draft for the same person
+-- land under the same value, and GET /api/scratchpad?email=... returns both.
+--
+-- Guarded rather than a bare RENAME COLUMN so re-applying this file (e.g.
+-- after apply_migrations.py flags it as "changed since last applied") is
+-- still a no-op the second time, same as every CREATE ... IF NOT EXISTS
+-- above.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'zone3' AND table_name = 'scratchpad_notes'
+          AND column_name = 'user_id'
+    ) THEN
+        ALTER TABLE zone3.scratchpad_notes RENAME COLUMN user_id TO email;
+    END IF;
+END $$;

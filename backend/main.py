@@ -20,19 +20,39 @@ load_dotenv(ROOT_ENV)
 from api.access import router as access_router  # noqa: E402
 from api.admin_projects import router as admin_projects_router  # noqa: E402
 from api.analytics import router as analytics_router  # noqa: E402
+from api.documents import router as documents_router  # noqa: E402
+from api.handover import router as handover_router  # noqa: E402
+from api.knowledge import router as knowledge_router  # noqa: E402
 from api.llm import build_providers  # noqa: E402
+from api.me import router as me_router  # noqa: E402
+from api.onboarding import router as onboarding_router  # noqa: E402
 from api.project import router as project_router  # noqa: E402
 from api.query import load_embedding_model, router as query_router  # noqa: E402
+from api.scope import router as scope_router  # noqa: E402
+
 from api.scratchpad import router as scratchpad_router  # noqa: E402
+from api.scratchpad_triggers import evaluate_candidates, expire_drafts  # noqa: E402
 from api.sessions import router as sessions_router  # noqa: E402
 from api.sow import router as sow_router  # noqa: E402
-from api.sync import SYNC_INTERVAL_MINUTES, router as sync_router, sync_all  # noqa: E402
+from api.sync import (  # noqa: E402
+    SYNC_INTERVAL_MINUTES,
+    _save_state,
+    router as sync_router,
+    sync_all,
+)
 
 logger = logging.getLogger(__name__)
 
 # Set SYNC_ENABLED=false to turn the background Jira/GitHub poller off
 # (e.g. a throwaway local instance pointed at the production database).
 SYNC_ENABLED = os.environ.get("SYNC_ENABLED", "true").lower() != "false"
+
+# Scratchpad auto-draft eligibility runs on its own schedule/task — see
+# _scratchpad_eval_loop below for why this is deliberately not folded into
+# _sync_loop. SCRATCHPAD_EVAL_ENABLED=false turns it off independently of
+# the Jira/GitHub poller.
+SCRATCHPAD_EVAL_ENABLED = os.environ.get("SCRATCHPAD_EVAL_ENABLED", "true").lower() != "false"
+SCRATCHPAD_EVAL_INTERVAL_MINUTES = int(os.environ.get("SCRATCHPAD_EVAL_INTERVAL_MINUTES", "5"))
 
 
 async def _sync_loop(app: FastAPI):
@@ -49,6 +69,34 @@ async def _sync_loop(app: FastAPI):
         except Exception:
             logger.exception("live sync pass failed")
         await asyncio.sleep(SYNC_INTERVAL_MINUTES * 60)
+
+
+async def _scratchpad_eval_loop(app: FastAPI):
+    """Drains zone3.scratchpad_draft_candidates on its own schedule — a
+    deliberately separate task from _sync_loop, not a step inside it. This
+    is where distillNote() (the LLM call) and the GitHub bot comment happen;
+    a slow AI pass here can't add a millisecond to how often
+    sync_jira()/sync_github_commits() run, because they aren't the same
+    coroutine and don't share a sleep cycle. Also expires 7-day-old drafts
+    each pass — cheap enough (one indexed DELETE) not to need its own loop.
+
+    Records itself into public.sync_state as source "scratchpad_eval" —
+    same table api.sync's jira/github_commits/github_prs passes already
+    write to, and the same GET /api/sync/status the frontend polls reads
+    from — so this pass shows up there without a second endpoint."""
+    await asyncio.sleep(30)  # let the first sync pass populate candidates
+    while True:
+        try:
+            n = await evaluate_candidates(app.state.pool, app.state.llm_providers)
+            if n:
+                logger.info("scratchpad eval pass: %s candidate(s)", n)
+            expired = await expire_drafts(app.state.pool)
+            if expired:
+                logger.info("scratchpad expiry pass: %s draft(s) removed", expired)
+            await _save_state(app.state.pool, "scratchpad_eval", "", "ok", n)
+        except Exception:
+            logger.exception("scratchpad eval pass failed")
+        await asyncio.sleep(SCRATCHPAD_EVAL_INTERVAL_MINUTES * 60)
 
 
 async def _load_model(app: FastAPI):
@@ -92,12 +140,17 @@ async def lifespan(app: FastAPI):
     sync_task = None
     if SYNC_ENABLED:
         sync_task = asyncio.create_task(_sync_loop(app))
+    scratchpad_eval_task = None
+    if SCRATCHPAD_EVAL_ENABLED:
+        scratchpad_eval_task = asyncio.create_task(_scratchpad_eval_loop(app))
     try:
         yield
     finally:
         model_task.cancel()
         if sync_task:
             sync_task.cancel()
+        if scratchpad_eval_task:
+            scratchpad_eval_task.cancel()
         await app.state.pool.close()
 
 
@@ -105,23 +158,38 @@ app = FastAPI(title="Relay Backend", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(access_router)
 app.include_router(admin_projects_router)
+app.include_router(me_router)
 app.include_router(query_router)
 app.include_router(sessions_router)
 app.include_router(scratchpad_router)
 app.include_router(analytics_router)
 app.include_router(project_router)
+app.include_router(handover_router)
+app.include_router(knowledge_router)
+app.include_router(scope_router)
 app.include_router(sync_router)
 app.include_router(sow_router)
+app.include_router(documents_router)
+app.include_router(onboarding_router)
 
 
 @app.get("/health")
 async def health(request: Request):
-    # Kept deliberately cheap — this is what the keep-alive pinger hits.
-    return {"status": "ok", "model_ready": request.app.state.model_ready.is_set()}
+    # This is what both the keep-alive pinger and Render's own health check hit,
+    # so a DB hiccup must never turn into a non-200 here (Render would restart the
+    # service). The SELECT 1 exists only to reset Neon's own idle-suspend timer —
+    # its result/failure is reported but never allowed to change the status code.
+    db_ok = True
+    try:
+        await asyncio.wait_for(request.app.state.pool.fetchval("SELECT 1"), timeout=5)
+    except Exception:
+        db_ok = False
+    return {"status": "ok", "model_ready": request.app.state.model_ready.is_set(), "db_ok": db_ok}

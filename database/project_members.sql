@@ -1,3 +1,14 @@
+-- SUPERSEDED — NOT APPLIED, kept for history only.
+-- backend/scripts/apply_migrations.py skips this file by name.
+--
+-- This table requires a "User" row inside THIS Postgres instance (the FK
+-- below), but Prisma's login users are a separate SQLite database
+-- (prisma/schema.prisma, provider "sqlite") this backend can't query — so
+-- it could never really be built the way this file describes. The
+-- access-control feature this was for (backend/api/access.py) was rewired
+-- to check public.project_staffing by email instead, which needs no
+-- cross-database FK. See database/project_staffing.sql.
+--
 -- Per-project access control (SOW deliverable D6 — "Provenance & Read-Time
 -- Permission Evaluation"): which app user can read which project's data.
 --

@@ -1,10 +1,19 @@
-import { RefreshCw } from "lucide-react";
+import { Loader2, Save, X } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Avatar, GhostButton, SectionLabel } from "@/components/relay/primitives";
-import type { MockProject } from "@/lib/admin/mockProjects";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { GhostButton, SectionLabel } from "@/components/relay/primitives";
+import { TeamRoster } from "@/components/relay/TeamRoster";
+import { validateGithub, validateJira } from "@/lib/admin/validators";
+import type { BackendProject } from "@/lib/admin/backendProjects";
+import type { SessionUser } from "@/lib/auth/types";
 
-function formatDate(iso: string) {
+const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
+
+function formatDate(iso: string | null) {
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
@@ -12,127 +21,229 @@ function formatDate(iso: string) {
   });
 }
 
-export function ProjectDetailPanel({
-  project,
-  onClose,
-}: {
-  project: MockProject | null;
-  onClose: () => void;
-}) {
-  const configToast = () =>
-    toast("This would open the configuration editor in production.");
+function JiraEditor({ project }: { project: BackendProject }) {
+  const [baseUrl, setBaseUrl] = useState(project.jira_base_url ?? "");
+  const [projectKey, setProjectKey] = useState(project.jira_project_key ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    // Same format-only check as the setup wizard — this isn't a live Jira
+    // call, just catching an obviously wrong URL/key before it's saved.
+    const msg = validateJira({
+      baseUrl,
+      projectKey,
+      email: "placeholder@example.com",
+      apiToken: "x",
+    });
+    if (msg) {
+      setError(msg);
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/projects/${project.engagement_id}/jira`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base_url: baseUrl, project_key: projectKey.toUpperCase() }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      toast("Jira connection saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <Sheet open={project !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-[480px] sm:max-w-[480px]">
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      <div className="flex items-center gap-2">
+        <span className="w-14 shrink-0 text-[12px] font-semibold text-ink">Jira</span>
+        <Input
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="https://yourcompany.atlassian.net"
+          className="flex-grow"
+        />
+        <Input
+          value={projectKey}
+          onChange={(e) => setProjectKey(e.target.value)}
+          placeholder="KAN"
+          className="w-24"
+        />
+        <GhostButton tone="brand" onClick={save} disabled={saving}>
+          {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+          Save
+        </GhostButton>
+      </div>
+      {error && (
+        <span className="flex items-center gap-1.5 pl-16 text-[12px] font-medium text-danger">
+          <X className="size-3 shrink-0" /> {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function GithubEditor({ project }: { project: BackendProject }) {
+  const [repoUrl, setRepoUrl] = useState(project.github_repo_url ?? "");
+  const [branch, setBranch] = useState(project.github_branch ?? "main");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const msg = validateGithub({ repoUrl, token: "x" });
+    if (msg) {
+      setError(msg);
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/projects/${project.engagement_id}/github`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo_url: repoUrl, branch: branch || "main" }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      toast("GitHub connection saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      <div className="flex items-center gap-2">
+        <span className="w-14 shrink-0 text-[12px] font-semibold text-ink">GitHub</span>
+        <Input
+          value={repoUrl}
+          onChange={(e) => setRepoUrl(e.target.value)}
+          placeholder="https://github.com/owner/repo"
+          className="flex-grow"
+        />
+        <Input
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+          placeholder="main"
+          className="w-24"
+        />
+        <GhostButton tone="brand" onClick={save} disabled={saving}>
+          {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+          Save
+        </GhostButton>
+      </div>
+      {error && (
+        <span className="flex items-center gap-1.5 pl-16 text-[12px] font-medium text-danger">
+          <X className="size-3 shrink-0" /> {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function GovernanceEditor({ project }: { project: BackendProject }) {
+  const [retentionDays, setRetentionDays] = useState(String(project.retention_days ?? ""));
+  const [dpaReference, setDpaReference] = useState(project.dpa_reference ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/projects/${project.engagement_id}/governance`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          retention_days: retentionDays ? Number(retentionDays) : null,
+          dpa_reference: dpaReference || null,
+        }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      toast("Retention settings saved.");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border p-3">
+      <span className="w-14 shrink-0 text-[12px] font-semibold text-ink">Retention</span>
+      <Input
+        type="number"
+        value={retentionDays}
+        onChange={(e) => setRetentionDays(e.target.value)}
+        placeholder="Days"
+        className="w-24"
+      />
+      <Input
+        value={dpaReference}
+        onChange={(e) => setDpaReference(e.target.value)}
+        placeholder="DPA reference"
+        className="flex-grow"
+      />
+      <GhostButton tone="brand" onClick={save} disabled={saving}>
+        {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+        Save
+      </GhostButton>
+    </div>
+  );
+}
+
+export function ProjectDetailPanel({
+  project,
+  user,
+  onClose,
+}: {
+  project: BackendProject | null;
+  user: SessionUser;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={project !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
         {project && (
-          <div className="flex h-full flex-col">
-            <SheetHeader>
-              <SheetTitle className="text-[16px]">{project.name}</SheetTitle>
+          <>
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <DialogTitle className="text-[16px]">{project.name}</DialogTitle>
+                {project.project_code && (
+                  <span className="rounded-sm bg-surface-sunken px-1.5 py-0.5 font-mono text-[10.5px] font-semibold text-mute">
+                    {project.project_code}
+                  </span>
+                )}
+              </div>
               <p className="text-[12px] text-mute">
-                {project.clientName} · {project.jiraKey} · started {formatDate(project.startDate)}
+                {project.client_name} · started {formatDate(project.start_date)}
               </p>
-            </SheetHeader>
+            </DialogHeader>
 
-            <div className="mt-6 flex flex-col gap-6 overflow-y-auto">
-              <div>
-                <SectionLabel>Connection status</SectionLabel>
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5">
-                    <div className="flex items-center gap-2 text-[13px]">
-                      <span className="w-12 shrink-0 font-semibold text-ink">Jira</span>
-                      <span className="size-1.5 shrink-0 rounded-full bg-success" />
-                      <span className="text-mute">Connected</span>
-                      <span className="text-mute">
-                        {project.jiraBaseUrl} · {project.jiraKey}
-                      </span>
-                    </div>
-                    <GhostButton onClick={() => toast("Jira connection is healthy.")}>
-                      Test
-                    </GhostButton>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5">
-                    <div className="flex items-center gap-2 text-[13px]">
-                      <span className="w-12 shrink-0 font-semibold text-ink">GitHub</span>
-                      <span className="size-1.5 shrink-0 rounded-full bg-success" />
-                      <span className="text-mute">Connected</span>
-                      <span className="truncate text-mute">github.com/{project.githubRepo}</span>
-                    </div>
-                    <GhostButton onClick={() => toast("GitHub connection is healthy.")}>
-                      Test
-                    </GhostButton>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5">
-                    <div className="flex items-center gap-2 text-[13px]">
-                      <span className="w-12 shrink-0 font-semibold text-ink">Last sync</span>
-                      <span className="text-mute">{project.lastSync}</span>
-                    </div>
-                    <GhostButton
-                      tone="brand"
-                      onClick={() => toast(`Sync started for ${project.name}.`)}
-                    >
-                      <RefreshCw /> Sync now
-                    </GhostButton>
-                  </div>
-                </div>
-              </div>
+            <Tabs defaultValue="connections" className="mt-2">
+              <TabsList>
+                <TabsTrigger value="connections">Connections</TabsTrigger>
+                <TabsTrigger value="team">Team</TabsTrigger>
+              </TabsList>
 
-              <div>
-                <SectionLabel>Project stats</SectionLabel>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-lg bg-surface-sunken px-3.5 py-3">
-                    <div className="text-[20px] font-bold text-ink">
-                      {project.ticketCount.toLocaleString()}
-                    </div>
-                    <div className="text-[11px] text-mute">tickets</div>
-                  </div>
-                  <div className="rounded-lg bg-surface-sunken px-3.5 py-3">
-                    <div className="text-[20px] font-bold text-ink">
-                      {project.commitCount.toLocaleString()}
-                    </div>
-                    <div className="text-[11px] text-mute">commits</div>
-                  </div>
-                  <div className="rounded-lg bg-surface-sunken px-3.5 py-3">
-                    <div className="text-[20px] font-bold text-ink">{project.coveragePct}%</div>
-                    <div className="text-[11px] text-mute">coverage</div>
-                  </div>
-                  <div className="rounded-lg bg-surface-sunken px-3.5 py-3">
-                    <div className="text-[20px] font-bold text-ink">
-                      {project.chunksCount.toLocaleString()}
-                    </div>
-                    <div className="text-[11px] text-mute">chunks</div>
-                  </div>
-                </div>
-              </div>
+              <TabsContent value="connections" className="mt-4 flex flex-col gap-3">
+                <SectionLabel>Jira &amp; GitHub</SectionLabel>
+                <JiraEditor project={project} />
+                <GithubEditor project={project} />
+                <SectionLabel className="mt-2">Retention &amp; governance</SectionLabel>
+                <GovernanceEditor project={project} />
+              </TabsContent>
 
-              <div>
-                <SectionLabel>Team members</SectionLabel>
-                <div className="flex flex-col gap-2">
-                  {project.team.slice(0, 4).map((m) => (
-                    <div key={m.name} className="flex items-center gap-2.5">
-                      <Avatar initials={m.initials} size={26} />
-                      <span className="flex-grow text-[13px] text-ink">{m.name}</span>
-                      <span className="text-[12px] text-mute">{m.role}</span>
-                    </div>
-                  ))}
-                  {project.team.length > 4 && (
-                    <p className="pl-[34px] text-[12px] text-mute">
-                      + {project.team.length - 4} more
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-auto flex items-center gap-2 border-t border-border pt-4">
-              <GhostButton onClick={configToast}>Edit configuration</GhostButton>
-              <GhostButton tone="danger" onClick={configToast}>
-                Begin offboarding
-              </GhostButton>
-            </div>
-          </div>
+              <TabsContent value="team" className="mt-4">
+                <TeamRoster engagementId={project.engagement_id} />
+              </TabsContent>
+            </Tabs>
+          </>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

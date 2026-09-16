@@ -245,6 +245,70 @@ export const LEAVING_PEOPLE: LeavingPerson[] = [
   },
 ];
 
+// LEAVING_PEOPLE above only covers 3 illustrative names from an older mock
+// team (Ravi/Jason Gustafson/David) — none of them match the real KPD Jira
+// roster (Shubhr Aryan, Agrim, Priya, etc.), so every real person fell
+// through to an empty branches/activity list. These generators fill that gap
+// with KPD-flavored mock data, keyed to a stable seed (the person's Jira
+// account_id) so the same person sees the same "mock" data on every reload
+// instead of it reshuffling underneath them.
+function seedHash(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+const MOCK_BRANCH_POOL: Omit<UnmergedBranch, "commitsAhead" | "lastPush" | "state">[] = [
+  { name: "fix/kpd-ingestion-retry-backoff" },
+  { name: "feat/kpd-scope-classifier-ambiguous-rule" },
+  { name: "fix/kpd-embedding-batch-oom" },
+  { name: "chore/kpd-commit-link-regex" },
+  { name: "feat/kpd-permission-cache-invalidation" },
+  { name: "fix/kpd-github-token-refresh" },
+  { name: "feat/kpd-onboarding-buddy-suggestion" },
+  { name: "fix/kpd-auth-race-condition" },
+];
+
+const MOCK_COMMIT_MESSAGES = [
+  "Add retry backoff for ingestion pipeline timeouts",
+  "Handle ambiguous scope classification edge case",
+  "Reduce embedding batch size to avoid CI OOM",
+  "Fix ticket-to-commit regex for parenthesized keys",
+  "Invalidate permission cache on project unstaff",
+  "Refresh GitHub App installation token before expiry",
+  "Draft onboarding buddy-suggestion heuristic",
+  "Guard against auth token refresh race during deploy",
+  "Add unit test for scope alert dedup",
+  "Document sprint realignment script assumptions",
+];
+
+const LAST_PUSH_OPTIONS = ["2h ago", "5h ago", "1d ago", "2d ago", "4d ago"];
+const ACTIVITY_WHEN_OPTIONS = ["3h ago", "1d ago", "2d ago", "3d ago", "5d ago"];
+
+export function mockBranchesForPerson(seed: string): UnmergedBranch[] {
+  const h = seedHash(seed);
+  const count = (h % 2) + 1; // 1-2 branches, varies per person
+  return Array.from({ length: count }, (_, i) => {
+    const branch = MOCK_BRANCH_POOL[(h + i) % MOCK_BRANCH_POOL.length]!;
+    return {
+      ...branch,
+      commitsAhead: ((h >> (i + 2)) % 5) + 1,
+      lastPush: LAST_PUSH_OPTIONS[(h + i) % LAST_PUSH_OPTIONS.length]!,
+      state: i % 2 === 0 ? "mid-flight" : "stale",
+    };
+  });
+}
+
+export function mockActivityForPerson(seed: string): ActivityCommit[] {
+  const h = seedHash(seed);
+  const count = (h % 3) + 3; // 3-5 commits, varies per person
+  return Array.from({ length: count }, (_, i) => ({
+    sha: (h + i * 2654435761).toString(16).slice(0, 7).padStart(7, "0"),
+    message: MOCK_COMMIT_MESSAGES[(h + i) % MOCK_COMMIT_MESSAGES.length]!,
+    when: ACTIVITY_WHEN_OPTIONS[(h + i) % ACTIVITY_WHEN_OPTIONS.length]!,
+  }));
+}
+
 export const KIT_INCLUDED = [
   "Open ticket list with status and priority",
   "Open PRs and who is blocked waiting",

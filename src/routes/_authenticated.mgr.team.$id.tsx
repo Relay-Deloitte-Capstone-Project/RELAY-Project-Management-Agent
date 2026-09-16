@@ -1,121 +1,100 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
-  ClipboardList,
-  GitBranch,
-  Lightbulb,
+  GitCommitHorizontal,
   Loader2,
-  MessageSquareText,
-  PackageOpen,
-  Rocket,
+  NotebookPen,
   Search,
+  ShieldAlert,
   Zap,
 } from "lucide-react";
 import { AppShell } from "@/components/relay/AppShell";
 import {
   Avatar,
-  BranchName,
   Chip,
-  GhostButton,
   MetricCard,
   PageSection,
   Panel,
-  ProgressRow,
   TicketKey,
 } from "@/components/relay/primitives";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { handoverDetails, teamMembers, type HandoverSituation } from "@/lib/mockData";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/mgr/team/$id")({
   head: () => ({
     meta: [
-      { title: "Handover — Relay" },
+      { title: "Work state — Relay" },
       {
         name: "description",
         content:
-          "Full work state, assignable handover, and knowledge-risk view assembled from Jira and, where recorded, Git.",
+          "One person's live work state, code trail and captured knowledge, assembled from Jira and GitHub.",
       },
     ],
   }),
-  component: TeamMemberHandover,
+  component: TeamMemberProfile,
 });
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
-const TABS = ["Work state", "Assign handover", "Knowledge risks"] as const;
-type Tab = (typeof TABS)[number];
-
-const SITUATIONS: { id: HandoverSituation; label: string }[] = [
-  { id: "leave", label: "On leave" },
-  { id: "leaving", label: "Leaving project" },
-];
-
-const situationNote: Record<HandoverSituation, (firstName: string) => string> = {
-  leave: (name) =>
-    `${name} is on leave and expected back — coverage below is temporary. Focus on what needs an owner day-to-day, not a full knowledge transfer.`,
-  leaving: (name) =>
-    `${name} is leaving the project for good — treat the Knowledge risks tab as the priority. Anything unrecoverable there needs a transfer before the last day.`,
-  onboarding: () => "",
-};
-
-const priorityTone: Record<string, "danger" | "warning" | "success" | "neutral"> = {
-  Critical: "danger",
-  High: "warning",
-  Review: "success",
-  Low: "neutral",
-};
-
-const riskDot: Record<"high" | "medium" | "low", string> = {
-  high: "bg-danger",
-  medium: "bg-warning",
-  low: "bg-success",
-};
-
-type JiraMember = {
+// Assigning tickets and writing the handover note deliberately do NOT live
+// here — that flow is the Handover kit, reached from the sidebar, and having
+// a second copy of it on this page meant two implementations of the same
+// thing where only one was backed by real data. This page answers the
+// standing question instead: what is this person carrying, and what of it is
+// written down anywhere?
+//
+// Managers and admins never appear here: /api/project/team-continuity
+// excludes them (see HIDDEN_ROSTER_ROLES in backend/api/project.py), so a
+// direct link to one resolves to the "no one matches this link" branch
+// rather than rendering a profile.
+type ContinuityRow = {
   account_id: string;
   name: string;
+  email: string | null;
+  role: string | null;
   to_do: number;
   in_progress: number;
   done: number;
+  commit_count: number;
+  last_commit_at: string | null;
+  notes_approved: number;
+  notes_draft: number;
+  in_flight: number;
+  undocumented_in_flight: number;
 };
 type Ticket = { key: string; summary: string; status: string; created: string };
-type MockDetail = (typeof handoverDetails)[string];
+type Commit = {
+  sha_short: string;
+  message: string;
+  committed_at: string | null;
+  repo: string | null;
+  ticket_refs: string[];
+};
+type Trail = { name: string; email: string | null; commits: Commit[] };
 
-function TeamMemberHandover() {
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function TeamMemberProfile() {
   const { user } = Route.useRouteContext();
   const { id } = Route.useParams();
 
-  const [team, setTeam] = useState<JiraMember[] | null>(null);
+  const [team, setTeam] = useState<ContinuityRow[] | null>(null);
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
+  const [trail, setTrail] = useState<Trail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("Work state");
-  const [situation, setSituation] = useState<HandoverSituation>("leaving");
+  const [query, setQuery] = useState("");
 
   const member = team?.find((m) => m.account_id === id);
-  // The old mock handover content (branches, PRs, recent commits, knowledge
-  // risks — nothing Jira has) is keyed by 4 of the same 8 real names this
-  // team roster uses. Real people outside that set of 4 simply have no
-  // mock detail, same as before — every panel that reads from `detail`
-  // already handles it being undefined.
-  const mockMember = member ? teamMembers.find((m) => m.name === member.name) : undefined;
-  const detail: MockDetail | undefined = mockMember ? handoverDetails[mockMember.id] : undefined;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/project/team`);
-        if (!res.ok) throw new Error("Request failed");
-        const json: JiraMember[] = await res.json();
+        const res = await fetch(`${API_URL}/api/project/team-continuity`);
+        if (!res.ok) throw new Error(`Couldn't load the team (${res.status})`);
+        const json: ContinuityRow[] = await res.json();
         if (!cancelled) setTeam(json);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load the team.");
@@ -129,19 +108,18 @@ function TeamMemberHandover() {
   useEffect(() => {
     if (!member) return;
     let cancelled = false;
+    const name = member.name;
     (async () => {
-      try {
-        const res = await fetch(
-          `${API_URL}/api/project/tickets?assignee=${encodeURIComponent(member.name)}`,
-        );
-        if (!res.ok) throw new Error("Request failed");
-        const json: Ticket[] = await res.json();
-        if (!cancelled) setTickets(json);
-      } catch (err) {
-        if (!cancelled)
-          setError(err instanceof Error ? err.message : "Couldn't load their tickets.");
-      }
-    })();
+      const [ticketRes, trailRes] = await Promise.all([
+        fetch(`${API_URL}/api/project/tickets?assignee=${encodeURIComponent(name)}`),
+        fetch(`${API_URL}/api/project/member-trail?name=${encodeURIComponent(name)}`),
+      ]);
+      if (cancelled) return;
+      if (ticketRes.ok) setTickets(await ticketRes.json());
+      if (trailRes.ok) setTrail(await trailRes.json());
+    })().catch((err) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load their work.");
+    });
     return () => {
       cancelled = true;
     };
@@ -149,7 +127,7 @@ function TeamMemberHandover() {
 
   if (error) {
     return (
-      <AppShell user={user} title="Handover">
+      <AppShell user={user} title="Work state">
         <PageSection>
           <p className="text-[13px] text-danger">{error}</p>
         </PageSection>
@@ -159,7 +137,7 @@ function TeamMemberHandover() {
 
   if (!team) {
     return (
-      <AppShell user={user} title="Handover">
+      <AppShell user={user} title="Work state">
         <PageSection>
           <div className="flex items-center gap-2 text-[13px] text-mute">
             <Loader2 className="size-3.5 animate-spin" /> Loading…
@@ -171,7 +149,7 @@ function TeamMemberHandover() {
 
   if (!member) {
     return (
-      <AppShell user={user} title="Handover">
+      <AppShell user={user} title="Work state">
         <PageSection>
           <Panel>
             <p className="text-[13px] text-mute">No one on the team matches this link.</p>
@@ -181,119 +159,10 @@ function TeamMemberHandover() {
     );
   }
 
-  const firstName = member.name.split(" ")[0] ?? member.name;
-  const otherMembers = team.filter((m) => m.account_id !== member.account_id);
-
-  return (
-    <AppShell user={user} title={`${member.name} — handover`}>
-      <PageSection>
-        <Link to="/mgr/team" className="text-[13px] font-medium text-brand">
-          ← Team handover
-        </Link>
-
-        <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Avatar
-              initials={mockMember?.initials ?? member.name.slice(0, 2).toUpperCase()}
-              size={44}
-            />
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-[16px] font-medium text-ink">{member.name}</h2>
-                {mockMember?.onLeave ? <Chip tone="warning">On leave</Chip> : null}
-              </div>
-              <p className="text-[13px] text-mute">
-                {mockMember?.role ?? "Team member"}
-                {detail ? ` · Active since ${detail.activeSince}` : ""}
-              </p>
-            </div>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {SITUATIONS.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => setSituation(s.id)}
-                className={cn(
-                  "rounded-md border px-3 py-2 text-[12px] font-medium transition-colors duration-150",
-                  situation === s.id
-                    ? "border-brand bg-brand-soft text-brand"
-                    : "border-border text-mute hover:text-ink",
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
-            <Link to="/mgr/team/$id/handover-kit" params={{ id: member.account_id }}>
-              <GhostButton>
-                <PackageOpen /> Handover kit
-              </GhostButton>
-            </Link>
-            <Link to="/mgr/team/$id/onboarding-kit" params={{ id: member.account_id }}>
-              <GhostButton>
-                <Rocket /> Onboarding kit
-              </GhostButton>
-            </Link>
-          </div>
-        </div>
-
-        <p className="mt-3 text-[12px] leading-relaxed text-mute italic">
-          {situationNote[situation](firstName)}
-        </p>
-      </PageSection>
-
-      <PageSection className="mb-4">
-        <div className="flex gap-5 border-b border-border">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={cn(
-                "-mb-px border-b-2 pb-2 text-[13px] font-medium transition-colors duration-150",
-                tab === t
-                  ? "border-brand text-brand"
-                  : "border-transparent text-mute hover:text-ink",
-              )}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </PageSection>
-
-      {tab === "Work state" ? (
-        <WorkStateTab
-          firstName={firstName}
-          detail={detail}
-          tickets={tickets}
-          openPrs={mockMember?.prs}
-        />
-      ) : null}
-      {tab === "Assign handover" ? (
-        <AssignHandoverTab detail={detail} tickets={tickets} otherMembers={otherMembers} />
-      ) : null}
-      {tab === "Knowledge risks" ? (
-        <KnowledgeRisksTab firstName={firstName} detail={detail} />
-      ) : null}
-    </AppShell>
-  );
-}
-
-function WorkStateTab({
-  firstName,
-  detail,
-  tickets,
-  openPrs,
-}: {
-  firstName: string;
-  detail: MockDetail | undefined;
-  tickets: Ticket[] | null;
-  openPrs: number | undefined;
-}) {
-  const [query, setQuery] = useState("");
+  const displayName = member.name.replace(/_/g, " ");
+  const firstName = displayName.split(" ")[0] ?? displayName;
   const q = query.trim().toLowerCase();
-  // Longest-outstanding tickets first; live-filtered by key or summary.
+  // Longest-outstanding first; live-filtered by key or summary.
   const visibleTickets = tickets
     ? [...tickets]
         .sort((a, b) => new Date(a.created).getTime() - new Date(b.created).getTime())
@@ -301,15 +170,36 @@ function WorkStateTab({
     : null;
 
   return (
-    <>
+    <AppShell user={user} title={`${displayName} — work state`}>
       <PageSection>
-        <div className="grid grid-cols-3 gap-4">
-          <MetricCard label="Open tickets" value={tickets?.length ?? "—"} />
-          <MetricCard label="Open PRs" value={openPrs ?? "—"} tone="brand" />
+        <Link to="/mgr/team" className="text-[13px] font-medium text-brand">
+          ← Team overview
+        </Link>
+
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Avatar initials={displayName.slice(0, 2).toUpperCase()} size={44} />
+            <div>
+              <h2 className="text-[16px] font-medium text-ink">{displayName}</h2>
+              <p className="text-[13px] text-mute">
+                {member.role ?? "Team member"}
+                {member.email ? ` · ${member.email}` : ""}
+              </p>
+            </div>
+          </div>
+        </div>
+      </PageSection>
+
+      <PageSection>
+        <div className="grid grid-cols-4 gap-3">
+          <MetricCard label="In flight" value={member.in_progress} tone="brand" />
+          <MetricCard label="Queued" value={member.to_do} />
+          <MetricCard label="Done" value={member.done} tone="success" />
           <MetricCard
-            label={`Unreviewed (awaiting ${firstName})`}
-            value={detail?.prsAwaiting.length ?? 0}
-            tone={(detail?.prsAwaiting.length ?? 0) > 0 ? "danger" : "success"}
+            label="Nothing written down"
+            value={member.undocumented_in_flight}
+            tone={member.undocumented_in_flight > 0 ? "warning" : "success"}
+            hint="Of the in-flight work"
           />
         </div>
       </PageSection>
@@ -365,329 +255,77 @@ function WorkStateTab({
             )}
           </Panel>
 
-          <div className="flex flex-col gap-4">
-            <Panel title="Open branches" icon={<GitBranch className="size-3.5 text-mute" />}>
-              {!detail || detail.branches.length === 0 ? (
-                <p className="py-2 text-[13px] text-mute">No branches ahead of main.</p>
-              ) : (
-                <ul>
-                  {detail.branches.map((b) => (
-                    <li key={b.name} className="border-b border-border py-2 last:border-0">
-                      <BranchName>{b.name}</BranchName>
-                      <div className="mt-0.5 text-[11px] text-mute">
-                        {b.commitsAhead} commits ahead · unmerged
-                      </div>
-                      <div
-                        className={cn(
-                          "text-[11px]",
-                          b.state === "mid-flight" ? "text-warning" : "text-mute",
-                        )}
-                      >
-                        Last push {b.lastPush} — {b.state === "mid-flight" ? "mid-flight" : "stale"}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Panel>
-
-            <Panel
-              title={`PRs awaiting ${firstName}`}
-              icon={<MessageSquareText className="size-3.5 text-mute" />}
-            >
-              {!detail || detail.prsAwaiting.length === 0 ? (
-                <p className="py-2 text-[13px] text-mute">Nothing waiting on this person.</p>
-              ) : (
-                <ul>
-                  {detail.prsAwaiting.map((pr) => (
-                    <li key={pr.key} className="border-b border-border py-2 last:border-0">
-                      <div className="flex items-center gap-2">
-                        <TicketKey>{pr.key}</TicketKey>
-                        <span className="flex-grow text-[13px] text-ink">{pr.title}</span>
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-danger">
-                        {pr.waitingDays > 0 ? `${pr.waitingDays} days waiting` : "waiting"} —
-                        priority unblock
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Panel>
-          </div>
+          <Panel
+            title="Knowledge captured"
+            icon={<NotebookPen className="size-3.5 text-mute" />}
+          >
+            <div className="flex gap-3">
+              <div className="flex-1 rounded-lg bg-surface-sunken px-3 py-2.5">
+                <div className="text-[22px] font-bold text-success">{member.notes_approved}</div>
+                <div className="text-[11px] text-mute">Kept — approved or promoted</div>
+              </div>
+              <div className="flex-1 rounded-lg bg-surface-sunken px-3 py-2.5">
+                <div className="text-[22px] font-bold text-ink">{member.notes_draft}</div>
+                <div className="text-[11px] text-mute">Drafts pending review</div>
+              </div>
+            </div>
+            {/* Counts only, deliberately. A Scratchpad draft belongs to its
+                author until they approve it, so the content of an unapproved
+                note is never surfaced to a manager. */}
+            <p className="mt-3 text-[12px] leading-relaxed text-mute">
+              Notes {firstName} approved are kept even if this client&apos;s data is later deleted.
+              Draft contents stay private to {firstName} until approved — only the count is shown
+              here.
+            </p>
+            {member.undocumented_in_flight > 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2">
+                <ShieldAlert className="mt-px size-3.5 shrink-0 text-warning" />
+                <p className="text-[12px] leading-relaxed text-warning">
+                  {member.undocumented_in_flight} in-flight ticket
+                  {member.undocumented_in_flight === 1 ? " has" : "s have"} no note and no linked
+                  commit — that reasoning exists nowhere but with {firstName}.
+                </p>
+              </div>
+            )}
+          </Panel>
         </div>
       </PageSection>
 
-      <PageSection label="What was mid-flight (last 7 days of activity)">
+      <PageSection
+        label="Code trail"
+        subtitle="Real commits from this engagement's GitHub history, with the tickets each one references."
+      >
         <Panel>
-          {!detail || detail.recentActivity.length === 0 ? (
-            <p className="py-2 text-[13px] text-mute">No commits in the last 7 days.</p>
+          {!trail ? (
+            <div className="flex items-center gap-2 py-2 text-[13px] text-mute">
+              <Loader2 className="size-3.5 animate-spin" /> Loading…
+            </div>
+          ) : trail.commits.length === 0 ? (
+            <p className="py-2 text-[13px] text-mute">
+              No commits recorded for {firstName} in this engagement.
+            </p>
           ) : (
             <ul>
-              {detail.recentActivity.map((c) => (
+              {trail.commits.map((c) => (
                 <li
-                  key={c.sha}
+                  key={c.sha_short}
                   className="flex items-center gap-3 border-b border-border py-2 last:border-0"
                 >
-                  <span className="font-mono text-[12px] text-brand">{c.sha}</span>
+                  <GitCommitHorizontal className="size-3.5 shrink-0 text-mute" />
+                  <span className="font-mono text-[12px] text-brand">{c.sha_short}</span>
                   <span className="flex-grow text-[13px] text-ink">{c.message}</span>
-                  <span className="shrink-0 text-[11px] text-mute">{c.when}</span>
+                  {c.ticket_refs.map((ref) => (
+                    <TicketKey key={ref}>{ref}</TicketKey>
+                  ))}
+                  <span className="w-16 shrink-0 text-right text-[11px] text-mute">
+                    {formatDate(c.committed_at)}
+                  </span>
                 </li>
               ))}
             </ul>
           )}
         </Panel>
       </PageSection>
-    </>
-  );
-}
-
-function AssignHandoverTab({
-  detail,
-  tickets,
-  otherMembers,
-}: {
-  detail: MockDetail | undefined;
-  tickets: Ticket[] | null;
-  otherMembers: JiraMember[];
-}) {
-  const urgencyOptions = ["Critical", "High", "Medium"] as const;
-  const [ticketAssignee, setTicketAssignee] = useState<Record<string, string>>({});
-  const [ticketUrgency, setTicketUrgency] = useState<Record<string, string>>({});
-  const [prReviewer, setPrReviewer] = useState<Record<string, string>>({});
-  const [branchOwner, setBranchOwner] = useState<Record<string, string>>({});
-  const [note, setNote] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
-
-  return (
-    <>
-      <PageSection>
-        <Panel
-          title="Assign coverage for open work"
-          icon={<ClipboardList className="size-3.5 text-mute" />}
-        >
-          <div className="section-label mb-2">Ticket coverage</div>
-          {!tickets || tickets.length === 0 ? (
-            <p className="text-[13px] text-mute">No open tickets to reassign.</p>
-          ) : (
-            <div className="max-h-[336px] space-y-2 overflow-y-auto pr-1">
-              {tickets.map((t) => (
-                <div key={t.key} className="flex items-center gap-3">
-                  <Chip tone="neutral" className="w-24 shrink-0 justify-center">
-                    {t.key}
-                  </Chip>
-                  <Select
-                    value={ticketAssignee[t.key] ?? ""}
-                    onValueChange={(v) => setTicketAssignee((prev) => ({ ...prev, [t.key]: v }))}
-                  >
-                    <SelectTrigger className="h-8 flex-grow text-[13px]">
-                      <SelectValue placeholder="Select team member" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {otherMembers.map((m) => (
-                        <SelectItem key={m.account_id} value={m.name}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div className="flex shrink-0 gap-1">
-                    {urgencyOptions.map((u) => (
-                      <button
-                        key={u}
-                        type="button"
-                        onClick={() => setTicketUrgency((prev) => ({ ...prev, [t.key]: u }))}
-                        className={cn(
-                          "rounded-sm border px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150",
-                          ticketUrgency[t.key] === u
-                            ? "border-brand bg-brand-soft text-brand"
-                            : "border-border text-mute hover:text-ink",
-                        )}
-                      >
-                        {u}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-      </PageSection>
-
-      <PageSection>
-        <div className="grid grid-cols-2 items-start gap-4">
-          <Panel
-            title="PR review coverage"
-            icon={<MessageSquareText className="size-3.5 text-mute" />}
-          >
-            <div className="space-y-2">
-              {!detail || detail.prsAwaiting.length === 0 ? (
-                <p className="text-[13px] text-mute">No PRs waiting on this person.</p>
-              ) : (
-                detail.prsAwaiting.map((pr) => (
-                  <div key={pr.key} className="flex items-center gap-3">
-                    <TicketKey>{pr.key}</TicketKey>
-                    <Select
-                      value={prReviewer[pr.key] ?? ""}
-                      onValueChange={(v) => setPrReviewer((prev) => ({ ...prev, [pr.key]: v }))}
-                    >
-                      <SelectTrigger className="h-8 flex-grow text-[13px]">
-                        <SelectValue placeholder="Assign a reviewer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {otherMembers.map((m) => (
-                          <SelectItem key={m.account_id} value={m.name}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="shrink-0 text-[11px] text-danger">
-                      ⚠ Blocked {pr.waitingDays} {pr.waitingDays === 1 ? "day" : "days"}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </Panel>
-
-          <Panel title="Branch owner" icon={<GitBranch className="size-3.5 text-mute" />}>
-            <div className="space-y-2">
-              {!detail || detail.branches.length === 0 ? (
-                <p className="text-[13px] text-mute">No branches to reassign.</p>
-              ) : (
-                detail.branches.map((b) => (
-                  <div key={b.name} className="flex items-center gap-3">
-                    <BranchName>{b.name}</BranchName>
-                    <Select
-                      value={branchOwner[b.name] ?? ""}
-                      onValueChange={(v) => setBranchOwner((prev) => ({ ...prev, [b.name]: v }))}
-                    >
-                      <SelectTrigger className="h-8 flex-grow text-[13px]">
-                        <SelectValue placeholder="Assign owner" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {otherMembers.map((m) => (
-                          <SelectItem key={m.account_id} value={m.name}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span
-                      className={cn(
-                        "shrink-0 text-[11px]",
-                        b.state === "mid-flight" ? "text-warning" : "text-mute",
-                      )}
-                    >
-                      {b.commitsAhead} commits, {b.state}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </Panel>
-        </div>
-      </PageSection>
-
-      <PageSection>
-        <Panel title="Handover note to assignees">
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Anything the next person should know that isn't captured in the tickets or commits..."
-            className="min-h-[88px] text-[13px]"
-          />
-        </Panel>
-      </PageSection>
-
-      <PageSection>
-        <div className="flex flex-wrap items-center gap-2">
-          <GhostButton>Preview email to team</GhostButton>
-          <GhostButton>Export as Markdown</GhostButton>
-          <GhostButton tone="brand" onClick={() => setConfirmed(true)}>
-            Confirm handover assignments
-          </GhostButton>
-        </div>
-        {confirmed ? (
-          <p className="mt-2 text-[12px] text-success">
-            Assignments recorded — this would notify Jira and the assigned team members.
-          </p>
-        ) : null}
-      </PageSection>
-    </>
-  );
-}
-
-function KnowledgeRisksTab({
-  firstName,
-  detail,
-}: {
-  firstName: string;
-  detail: MockDetail | undefined;
-}) {
-  if (!detail) {
-    return (
-      <PageSection>
-        <Panel>
-          <p className="text-[13px] text-mute">
-            No knowledge-risk data recorded for this person yet.
-          </p>
-        </Panel>
-      </PageSection>
-    );
-  }
-
-  return (
-    <>
-      <PageSection label={`Knowledge only ${firstName} holds (inferred from commit + PR history)`}>
-        <div className="space-y-2">
-          {detail.knowledgeRisks.map((r) => (
-            <div
-              key={r.title}
-              className="rounded-lg border border-border bg-surface-sunken px-4 py-3"
-            >
-              <div className="flex items-start gap-2">
-                <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", riskDot[r.level])} />
-                <div>
-                  <p className="text-[13px] font-medium text-ink">{r.title}</p>
-                  <p className="mt-0.5 text-[12px] text-mute">{r.detail}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </PageSection>
-
-      <PageSection label={`Documentation coverage for ${firstName}'s areas`}>
-        <Panel>
-          <div className="space-y-1">
-            {detail.docCoverage.map((d) => (
-              <ProgressRow key={d.label} label={d.label} value={d.value} inline />
-            ))}
-          </div>
-        </Panel>
-      </PageSection>
-
-      <PageSection>
-        <div className="rounded-xl border border-brand bg-brand-soft/40 p-4">
-          <div className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-brand">
-            <Lightbulb className="size-3.5" />
-            Recommended before {firstName} leaves
-          </div>
-          <ol className="space-y-1.5">
-            {detail.recommendations.map((rec, i) => (
-              <li
-                key={rec}
-                className="border-b border-border/60 pb-1.5 text-[13px] text-ink last:border-0"
-              >
-                {i + 1}. {rec}
-              </li>
-            ))}
-          </ol>
-        </div>
-      </PageSection>
-    </>
+    </AppShell>
   );
 }

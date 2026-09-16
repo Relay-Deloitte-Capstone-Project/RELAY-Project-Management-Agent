@@ -24,6 +24,7 @@ user's message is always stored verbatim; the rewrite only feeds retrieval.
 import os
 import re
 import time
+from typing import Optional
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Request
@@ -60,12 +61,19 @@ CACHE_LOOKUP_SQL = """
     FROM zone3.chat_messages m
     JOIN zone3.chat_sessions s ON s.id = m.session_id
     CROSS JOIN LATERAL (
-        SELECT id, content, created_at
+        -- The immediate next assistant message after m — NOT filtered by
+        -- abstained here. Filtering inside this subquery would skip past an
+        -- abstained direct reply to find the next non-abstained assistant
+        -- message anywhere later in the session, mispairing m with an
+        -- unrelated later answer instead of its own reply. `NOT a.abstained`
+        -- belongs in the outer WHERE, which excludes the pairing entirely
+        -- when the direct reply abstained, rather than substituting a
+        -- different one.
+        SELECT id, content, created_at, abstained
         FROM zone3.chat_messages a
         WHERE a.session_id = m.session_id
           AND a.role = 'assistant'
           AND a.created_at > m.created_at
-          AND NOT a.abstained
         ORDER BY a.created_at
         LIMIT 1
     ) a
@@ -73,6 +81,7 @@ CACHE_LOOKUP_SQL = """
       AND s.engagement_id = $3
       AND m.role = 'user'
       AND m.embedding IS NOT NULL
+      AND NOT a.abstained
     ORDER BY m.embedding <=> $1::vector
     LIMIT 1
 """
@@ -141,20 +150,25 @@ async def _rewrite_followup(llm_providers, history, question) -> str:
 class NewSession(BaseModel):
     user_id: str
     engagement_id: str = DEFAULT_ENGAGEMENT_ID
+    # Access is checked by email against public.project_staffing (see
+    # api/access.py) — user_id has no matching identity table this backend
+    # can query (Prisma/SQLite is a separate database from this Postgres).
+    email: str
 
 
 class NewMessage(BaseModel):
     user_id: str
     question: str
+    email: str
     # Display name from the session token — lets first-person questions
     # ("my in-progress tickets") resolve to this user in the intent layer.
-    user_name: str | None = None
+    user_name: Optional[str] = None
 
 
 @router.post("/api/sessions")
 async def create_session(body: NewSession, request: Request):
     pool: asyncpg.Pool = request.app.state.pool
-    await require_access(pool, body.user_id, body.engagement_id)
+    await require_access(pool, body.email, body.engagement_id)
     row = await pool.fetchrow(
         """
         INSERT INTO zone3.chat_sessions (user_id, engagement_id)
@@ -210,7 +224,7 @@ async def delete_session(session_id: str, user_id: str, request: Request):
     return {"ok": True}
 
 
-async def _lookup_cache(pool, user_id: str, engagement_id: str, qvec: str) -> dict | None:
+async def _lookup_cache(pool, user_id: str, engagement_id: str, qvec: str) -> Optional[dict]:
     """Reuse a past answer when the question is near-identical AND every chunk
     it cited is unchanged since it was written. Returns a run_query-shaped
     result, or None to run the pipeline fresh."""
@@ -289,7 +303,7 @@ async def _save_assistant_message(pool, session_id: str, result: dict, latency_m
         )
 
 
-async def _touch_session(pool, session_id: str, title: str | None, question: str):
+async def _touch_session(pool, session_id: str, title: Optional[str], question: str):
     """Bump last-activity for the sidebar ordering; auto-title from the
     first question."""
     await pool.execute(
@@ -318,9 +332,9 @@ async def send_message(session_id: str, body: NewMessage, request: Request):
         raise HTTPException(status_code=404, detail="Session not found")
 
     # Checked on EVERY message, not just at session creation — revoking a
-    # project_members row takes effect on the user's next query, per D6's
+    # project_staffing row takes effect on the user's next query, per D6's
     # "no cache flush or restart" requirement.
-    await require_access(pool, body.user_id, session["engagement_id"])
+    await require_access(pool, body.email, session["engagement_id"])
 
     question = body.question.strip()
     if not question:
