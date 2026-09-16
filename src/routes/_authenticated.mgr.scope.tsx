@@ -12,6 +12,8 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { Chip, PageSection, Panel, TicketKey } from "@/components/relay/primitives";
 
+const API = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
+
 type Deliverable = {
   deliverable_key: string;
   deliverable_title: string;
@@ -104,8 +106,8 @@ function ScopeGuardian() {
     async function loadScopeData() {
       try {
         const [deliverablesResponse, alertsResponse] = await Promise.all([
-          fetch("http://127.0.0.1:8001/api/scope/deliverables"),
-          fetch("http://127.0.0.1:8001/api/scope/alerts"),
+          fetch(`${API}/api/scope/deliverables`),
+          fetch(`${API}/api/scope/alerts`),
         ]);
 
         if (!deliverablesResponse.ok) {
@@ -126,7 +128,7 @@ function ScopeGuardian() {
         const ticketResults = await Promise.all(
           deliverablesData.map(async (d) => {
             const response = await fetch(
-              `http://127.0.0.1:8001/api/scope/tickets/KPD-${d.deliverable_key.replace("D", "")}`,
+              `${API}/api/scope/tickets/KPD-${d.deliverable_key.replace("D", "")}`,
             );
 
             if (!response.ok) return [];

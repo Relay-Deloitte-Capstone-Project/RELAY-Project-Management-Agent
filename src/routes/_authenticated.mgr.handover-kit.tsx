@@ -99,7 +99,7 @@ type JiraMember = {
   name: string;
 };
 
-const API_BASE = "http://127.0.0.1:8001";
+const API_BASE = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 function HandoverKit() {
   const { user } = Route.useRouteContext();
   const [personId, setPersonId] = useState<string>("");

@@ -18,7 +18,7 @@ type Summary = {
   summary: string;
 };
 
-const API = "http://127.0.0.1:8001";
+const API = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
 const EPIC_NAMES: Record<string, string> = {
   "KPD-1": "Data Ingestion Connectors (Jira + GitHub)",
