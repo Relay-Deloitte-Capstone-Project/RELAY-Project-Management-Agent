@@ -805,6 +805,75 @@ async def services(request: Request):
     ]
 
 
+@router.get("/api/project/recent-knowledge")
+async def recent_knowledge(engagement_id: str, request: Request, limit: int = 8):
+    """What has been added to the project's memory lately — approved scratchpad
+    notes and confirmed PM documents, newest first. Gives a developer a way to
+    see what changed since they last looked, which nothing else surfaces."""
+    async with request.app.state.pool.acquire() as conn:
+        notes = await conn.fetch(
+            """
+            SELECT title,
+                   coalesce(approved_at, created_at) AS at,
+                   email AS author
+            FROM zone3.scratchpad_notes
+            WHERE engagement_id = $1 AND status IN ('approved', 'promoted')
+            ORDER BY coalesce(approved_at, created_at) DESC
+            LIMIT $2
+            """,
+            engagement_id,
+            limit,
+        )
+        documents = await conn.fetch(
+            """
+            SELECT source_file_name AS title,
+                   doc_type,
+                   coalesce(confirmed_at, uploaded_at) AS at,
+                   uploaded_by AS author
+            FROM public.pm_documents
+            WHERE engagement_id = $1 AND ingestion_status = 'confirmed'
+            ORDER BY coalesce(confirmed_at, uploaded_at) DESC
+            LIMIT $2
+            """,
+            engagement_id,
+            limit,
+        )
+
+    items = [
+        {"kind": "note", "title": r["title"], "at": r["at"], "author": r["author"], "doc_type": None}
+        for r in notes
+    ] + [
+        {
+            "kind": "document",
+            "title": r["title"],
+            "at": r["at"],
+            "author": r["author"],
+            "doc_type": r["doc_type"],
+        }
+        for r in documents
+    ]
+    items.sort(key=lambda i: (i["at"] is not None, i["at"]), reverse=True)
+    return items[:limit]
+
+
+@router.get("/api/project/unassigned-tickets")
+async def unassigned_tickets(request: Request, limit: int = 10):
+    """Open Jira tickets with nobody on them. Deliberately not tied to any
+    person — it's a gap in the board, not a statement about anyone."""
+    async with request.app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT ticket_key, summary, status, issue_type
+            FROM raw.jira_tickets
+            WHERE assignee IS NULL AND status <> 'Done'
+            ORDER BY ticket_key
+            LIMIT $1
+            """,
+            limit,
+        )
+    return [dict(row) for row in rows]
+
+
 @router.get("/api/project/config")
 async def config():
     return {

@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from api import jira_client
 
@@ -183,4 +183,38 @@ async def employee_breakdown(sprint_id: Optional[int] = Query(default=None)):
     return {
         "sprint": {"id": sprint["id"], "name": sprint["name"]},
         "breakdown": breakdown,
+    }
+
+
+@router.get("/api/analytics/workload")
+async def workload(request: Request):
+    """Current open work per person, across the whole board rather than one
+    sprint — the capacity question a manager asks when deciding where the next
+    ticket goes.
+
+    Same compliance rules as /employee-breakdown: open work only (no completed
+    counts, so this can't be read as velocity), and alphabetical ordering, since
+    sorting by volume would turn a capacity view into a ranking. The imbalance
+    is still legible from the bars themselves; it just isn't editorialised.
+    """
+    async with request.app.state.pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                assignee,
+                count(*) FILTER (WHERE status = 'In Progress')::int AS in_progress,
+                count(*) FILTER (WHERE status NOT IN ('In Progress', 'Done'))::int AS to_do,
+                count(*) FILTER (WHERE status <> 'Done')::int AS open_total
+            FROM raw.jira_tickets
+            WHERE assignee IS NOT NULL
+            GROUP BY assignee
+            ORDER BY assignee
+        """)
+        unassigned = await conn.fetchval("""
+            SELECT count(*)::int FROM raw.jira_tickets
+            WHERE assignee IS NULL AND status <> 'Done'
+        """)
+
+    return {
+        "breakdown": [dict(row) for row in rows],
+        "unassigned": unassigned or 0,
     }

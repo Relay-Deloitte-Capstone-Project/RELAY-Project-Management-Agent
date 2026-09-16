@@ -1,8 +1,13 @@
-# Keeps the Render free-tier backend awake: Render sleeps a service after
-# ~15 min without traffic, and the cold start after that takes minutes.
+# Keeps the Render free-tier backend (and, via /health's own DB touch, Neon)
+# awake: Render sleeps a service after ~15 min without traffic, and the cold
+# start after that takes minutes.
 # This pings /health every 10 minutes so the service stays warm.
 #
 # Notes:
+# - Measured cold start is ~70-75s (importing sentence-transformers/torch
+#   before Uvicorn can even bind the port), so the ping must tolerate that —
+#   a 60s timeout was failing on every single cold hit. --retry handles the
+#   case where a ping lands mid-boot and the connection is refused outright.
 # - GitHub's scheduled workflows can be delayed a few minutes under load —
 #   the frontend wake-up ping (login page) covers that gap.
 # - Scheduled workflows only run from the DEFAULT branch (main) — merging
@@ -21,4 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping backend health
-        run: curl -fsS -m 60 https://relay-backend-uafq.onrender.com/health
+        run: |
+          curl -fsS -m 100 --retry 3 --retry-delay 10 --retry-connrefused \
+            https://relay-backend-uafq.onrender.com/health

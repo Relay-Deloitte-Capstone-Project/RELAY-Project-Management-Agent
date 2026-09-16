@@ -1,8 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Loader2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import { MetricCard, PageSection, Panel, TicketKey } from "@/components/relay/primitives";
+import {
+  MetricCard,
+  PageSection,
+  Panel,
+  SkeletonRows,
+  TicketKey,
+} from "@/components/relay/primitives";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -125,9 +131,7 @@ function Coverage() {
       <PageSection label="Unlinked tickets" subtitle="Labeled unlinked in Jira.">
         <Panel>
           {!tickets && !error && (
-            <div className="flex items-center gap-2 p-3 text-[13px] text-mute">
-              <Loader2 className="size-3.5 animate-spin" /> Loading…
-            </div>
+            <SkeletonRows rows={5} className="p-3" />
           )}
           {tickets && (
             <>

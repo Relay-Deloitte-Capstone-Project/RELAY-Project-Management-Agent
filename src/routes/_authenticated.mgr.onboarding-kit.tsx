@@ -1,23 +1,29 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ArrowRight, BookOpen, Compass, Lightbulb, TriangleAlert, Users } from "lucide-react";
-import { useState } from "react";
+import { Loader2, Rocket, Save, Sparkles, Users } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { AppShell } from "@/components/relay/AppShell";
-import { GhostButton, PageSection, Panel, TicketKey } from "@/components/relay/primitives";
-import { Input } from "@/components/ui/input";
+import { Chip, GhostButton, PageSection, Panel } from "@/components/relay/primitives";
 import {
-  ACTIVE_EPICS,
-  ACTIVE_FILES,
-  COVERAGE_MAP,
-  KEY_PRS,
-  LANDMINES,
-  MILESTONES,
-  OWNERSHIP,
-  PROJECT_ORIENTATION,
-  RECENT_FIXES,
-  REVIEW_OWNERSHIP,
-  SUGGESTED_FIRST_TICKET,
-} from "@/lib/mgr/onboardingKitMock";
-import { cn } from "@/lib/utils";
+  OnboardingCommonSections,
+  OnboardingFirstWeek,
+  OnboardingSectionNav,
+  type CommonContent,
+  type Kit,
+  type PersonalContent,
+} from "@/components/relay/OnboardingKitBody";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { useMyProject } from "@/lib/admin/useMyProject";
+
+const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
 export const Route = createFileRoute("/_authenticated/mgr/onboarding-kit")({
   head: () => ({
@@ -25,294 +31,307 @@ export const Route = createFileRoute("/_authenticated/mgr/onboarding-kit")({
       { title: "Onboarding kit — Relay" },
       {
         name: "description",
-        content: "Generate a project orientation kit for a developer joining the team.",
+        content: "Capture a one-time onboarding record for a developer joining the team.",
       },
     ],
   }),
-  component: OnboardingKit,
+  component: OnboardingKitPage,
 });
 
-function epicTone(pct: number) {
-  if (pct > 70) return "bg-success";
-  if (pct >= 40) return "bg-warning";
-  return "bg-danger";
-}
+type RosterEntry = {
+  name: string;
+  email: string;
+  role: string;
+  is_new: boolean;
+  has_kit: boolean;
+  kit_updated_at: string | null;
+};
 
-function OnboardingKit() {
+type FirstTicketPreview = PersonalContent & { suggested_buddy?: { name: string; email: string } | null };
+
+const EMPTY_PERSONAL: PersonalContent = { first_ticket: null, prs_for_first_ticket: [] };
+
+function OnboardingKitPage() {
   const { user } = Route.useRouteContext();
-  const [nameInput, setNameInput] = useState("Priya Sharma");
-  const [generatedFor, setGeneratedFor] = useState("Priya Sharma");
+  const { project } = useMyProject(user.email);
+  const engagementId = project?.engagement_id ?? null;
+
+  const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(true);
+  const [selectedEmail, setSelectedEmail] = useState<string>("");
+
+  const [common, setCommon] = useState<CommonContent | null>(null);
+  const [commonLoading, setCommonLoading] = useState(true);
+  const [teamNormsDraft, setTeamNormsDraft] = useState("");
+  const [envSetupDraft, setEnvSetupDraft] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  const [frozenKit, setFrozenKit] = useState<Kit | null>(null);
+  const [personalPreview, setPersonalContent] = useState<PersonalContent>(EMPTY_PERSONAL);
+  const [suggestedBuddy, setSuggestedBuddy] = useState<{ name: string; email: string } | null>(null);
+  const [buddyOverride, setBuddyOverride] = useState<string>("");
+  const [personalLoading, setPersonalLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const loadRoster = () => {
+    if (!engagementId) return;
+    setRosterLoading(true);
+    fetch(`${API_URL}/api/onboarding/roster?engagement_id=${engagementId}`)
+      .then((r) => r.json())
+      .then((rows: RosterEntry[]) => setRoster(rows))
+      .catch(() => toast.error("Couldn't load the team roster"))
+      .finally(() => setRosterLoading(false));
+  };
+  useEffect(loadRoster, [engagementId]);
+
+  // Project-common sections load once per engagement, independent of who's
+  // selected — they describe the project, not any one person.
+  const loadCommon = () => {
+    if (!engagementId) return;
+    setCommonLoading(true);
+    fetch(`${API_URL}/api/onboarding/common?engagement_id=${engagementId}`)
+      .then((r) => r.json())
+      .then((data: CommonContent) => {
+        setCommon(data);
+        setTeamNormsDraft(data.team_norms);
+        setEnvSetupDraft(data.env_setup);
+      })
+      .catch(() => toast.error("Couldn't load project orientation"))
+      .finally(() => setCommonLoading(false));
+  };
+  useEffect(loadCommon, [engagementId]);
+
+  const selected = useMemo(() => roster.find((r) => r.email === selectedEmail) ?? null, [roster, selectedEmail]);
+
+  // Selecting someone with an existing kit shows exactly what was frozen
+  // for them (the manager's review view). Selecting someone new shows a
+  // live, unsaved preview of just the personal section instead.
+  useEffect(() => {
+    setBuddyOverride("");
+    if (!engagementId || !selectedEmail || !selected) {
+      setFrozenKit(null);
+      setPersonalContent(EMPTY_PERSONAL);
+      setSuggestedBuddy(null);
+      return;
+    }
+    if (selected.has_kit) {
+      setPersonalLoading(true);
+      fetch(`${API_URL}/api/onboarding/kits?engagement_id=${engagementId}&developer_email=${encodeURIComponent(selectedEmail)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("none"))))
+        .then((data: Kit) => setFrozenKit(data))
+        .catch(() => setFrozenKit(null))
+        .finally(() => setPersonalLoading(false));
+    } else {
+      setFrozenKit(null);
+      setPersonalLoading(true);
+      fetch(
+        `${API_URL}/api/onboarding/preview-first-ticket?engagement_id=${engagementId}&developer_email=${encodeURIComponent(selectedEmail)}&developer_name=${encodeURIComponent(selected.name)}`,
+      )
+        .then((r) => r.json())
+        .then((data: FirstTicketPreview) => {
+          setPersonalContent(data);
+          setSuggestedBuddy(data.suggested_buddy ?? null);
+        })
+        .catch(() => {
+          setPersonalContent(EMPTY_PERSONAL);
+          setSuggestedBuddy(null);
+        })
+        .finally(() => setPersonalLoading(false));
+    }
+  }, [engagementId, selectedEmail]);
+
+  const handleSaveNotes = async () => {
+    if (!engagementId) return;
+    setSavingNotes(true);
+    try {
+      await fetch(`${API_URL}/api/onboarding/project-notes`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          engagement_id: engagementId,
+          team_norms: teamNormsDraft,
+          env_setup: envSetupDraft,
+          updated_by: user.email,
+        }),
+      });
+      setCommon((c) => (c ? { ...c, team_norms: teamNormsDraft, env_setup: envSetupDraft } : c));
+      toast.success("Saved — applies to every kit created from now on.");
+    } catch {
+      toast.error("Couldn't save.");
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!engagementId || !selectedEmail) return;
+    setCreating(true);
+    try {
+      const res = await fetch(`${API_URL}/api/onboarding/kits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          engagement_id: engagementId,
+          developer_email: selectedEmail,
+          created_by: user.email,
+          buddy_email: buddyOverride || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data: Kit = await res.json();
+      setFrozenKit(data);
+      loadRoster();
+      toast.success(`Onboarding kit ${selected?.has_kit ? "re-created" : "added"} for ${data.developer_name}`);
+    } catch {
+      toast.error("Couldn't build the onboarding kit — check the backend is running.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const notesUnsaved = teamNormsDraft !== common?.team_norms || envSetupDraft !== common?.env_setup;
+
+  // Common sections: always the live project view, unless a frozen kit is
+  // selected — then show exactly what was captured for that person.
+  const commonToShow: CommonContent | null = frozenKit ? frozenKit.content : common;
+  const personalToShow: PersonalContent = frozenKit
+    ? frozenKit.content
+    : { ...personalPreview, buddy: buddyOverride ? roster.find((r) => r.email === buddyOverride) ?? null : suggestedBuddy };
+
+  const buddyCandidates = roster.filter((r) => r.email !== selectedEmail);
 
   return (
     <AppShell user={user} title="Onboarding kit">
-      <PageSection>
-        <div className="flex items-end gap-2">
-          <div className="flex flex-col gap-1.5">
-            <label className="section-label">New developer name</label>
-            <Input
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              className="w-64"
-              placeholder="e.g. Priya Sharma"
-            />
-          </div>
-          <GhostButton
-            tone="brand"
-            onClick={() => setGeneratedFor(nameInput.trim() || "this developer")}
-          >
-            Generate kit <ArrowRight />
-          </GhostButton>
-        </div>
-        <p className="mt-2 text-[12px] text-mute italic">
-          Onboarding kit for {generatedFor} — assembled from Jira, GitHub and approved scratchpad
-          notes.
-        </p>
-      </PageSection>
-
-      {/* Section 1: Project orientation */}
-      <PageSection label="Project orientation">
-        <Panel className="border-l-4 border-l-brand">
-          <h3 className="font-serif text-[16px] font-semibold text-ink">
-            {PROJECT_ORIENTATION.title}
-          </h3>
-          <p className="mt-2 font-serif text-[14px] leading-relaxed whitespace-pre-line text-ink/90">
-            {PROJECT_ORIENTATION.body}
-          </p>
-        </Panel>
-
-        <div className="mt-4">
-          <Panel title="Active work this sprint" icon={<Compass className="size-3.5 text-mute" />}>
-            <div className="space-y-3">
-              {ACTIVE_EPICS.map((e) => (
-                <div key={e.title}>
-                  <div className="mb-1 flex items-center justify-between text-[13px]">
-                    <span className="font-medium text-ink">{e.title}</span>
-                    <span className="text-mute">
-                      {e.status} · {e.tickets} open tickets
-                    </span>
-                  </div>
-                  <div className="h-1 overflow-hidden rounded-full bg-surface-sunken">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all duration-700",
-                        epicTone(e.value),
-                      )}
-                      style={{ width: `${e.value}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-
-        <div className="mt-4">
-          <Panel title="Known landmines" icon={<TriangleAlert className="size-3.5 text-warning" />}>
-            <div className="space-y-2">
-              {LANDMINES.map((l) => (
-                <div
-                  key={l.title}
-                  className="rounded-r-lg border-l-4 border-l-warning bg-warning-soft/30 px-4 py-3"
-                >
-                  <p className="text-[13px] font-medium text-ink">⚠ {l.title}</p>
-                  <p className="mt-0.5 pl-4 text-[12px] text-mute">{l.detail}</p>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-      </PageSection>
-
-      {/* Section 2: The team */}
-      <PageSection label="The team">
-        <div className="grid grid-cols-2 gap-4">
-          <Panel title="Who owns what" icon={<Users className="size-3.5 text-mute" />}>
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="section-label pb-2 pr-3 font-normal">Area</th>
-                  <th className="section-label pb-2 pr-3 font-normal">Primary owner</th>
-                  <th className="section-label pb-2 font-normal">Contact</th>
-                </tr>
-              </thead>
-              <tbody>
-                {OWNERSHIP.map((o) => (
-                  <tr key={o.area} className="border-b border-border last:border-0">
-                    <td className="py-2 pr-3 text-[13px] text-ink">{o.area}</td>
-                    <td className="py-2 pr-3 text-[13px] font-medium text-ink">{o.owner}</td>
-                    <td className="py-2 text-[12px] text-mute">{o.contact}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="mt-2 text-[11px] text-mute italic">
-              This is inferred from commit history, not self-reported.
-            </p>
-          </Panel>
-
-          <Panel title="Who reviews what" icon={<Users className="size-3.5 text-mute" />}>
-            <ul className="space-y-2.5">
-              {REVIEW_OWNERSHIP.map((r) => (
-                <li key={r.area} className="flex items-center justify-between text-[13px]">
-                  <span className="text-mute">{r.area}</span>
-                  <span className="font-medium text-ink">
-                    → {r.reviewer} ({r.prCount} PRs)
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        </div>
-      </PageSection>
-
-      {/* Section 3: The codebase */}
-      <PageSection label="The codebase">
-        <div className="grid grid-cols-2 gap-4">
-          <Panel
-            title="Most active files this sprint"
-            icon={<BookOpen className="size-3.5 text-mute" />}
-          >
-            <ul>
-              {ACTIVE_FILES.map((f) => (
-                <li
-                  key={f.path}
-                  className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0"
-                >
-                  <span className="truncate font-mono text-[12px] text-ink">{f.path}</span>
-                  <span className="shrink-0 text-[11px] text-mute">{f.commits} commits</span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-[11px] text-mute italic">
-              Start here to understand current focus.
-            </p>
-          </Panel>
-
-          <Panel
-            title="Recent bugs fixed — read these first"
-            icon={<BookOpen className="size-3.5 text-mute" />}
-          >
-            <ul>
-              {RECENT_FIXES.map((f) => (
-                <li key={f.key} className="border-b border-border py-2 last:border-0">
-                  <div className="flex items-center gap-2">
-                    <TicketKey>{f.key}</TicketKey>
-                    <span className="flex-grow text-[13px] text-ink">{f.summary}</span>
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-mute">
-                    Fixed in <span className="font-mono text-brand">{f.fixedIn}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-[11px] text-mute italic">
-              Reading bug fixes is the fastest way to understand the system's weak points.
-            </p>
-          </Panel>
-        </div>
-
-        <div className="mt-4">
-          <Panel title="Coverage map">
-            <div className="grid grid-cols-2 gap-6">
-              <div>
-                <div className="section-label mb-2">Well documented (safe to explore)</div>
-                <div className="space-y-1.5">
-                  {COVERAGE_MAP.wellDocumented.map((c) => (
-                    <div key={c.label} className="flex items-center justify-between text-[13px]">
-                      <span className="text-ink">{c.label}</span>
-                      <span className="font-medium text-success">{c.value}% linked</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="section-label mb-2">Dark areas (no linked commits)</div>
-                <div className="space-y-1.5">
-                  {COVERAGE_MAP.darkAreas.map((c) => (
-                    <div key={c.label} className="flex items-center justify-between text-[13px]">
-                      <span className="text-ink">{c.label}</span>
-                      <span
-                        className={cn("font-medium", c.value < 20 ? "text-danger" : "text-warning")}
-                      >
-                        {c.value}% linked {c.value < 20 ? "⚠️" : ""}
+      <PageSection
+        label="Onboarding kit"
+        subtitle="Project orientation below is live and the same for everyone. Only the suggested first ticket, its PRs, and the onboarding buddy depend on who you pick — and the whole thing freezes the moment you add someone, so you can always review exactly what they were given."
+      >
+        <Panel title="Who's joining" icon={<Users className="size-4" />}>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[240px]">
+              <label className="mb-1 block text-[11px] font-medium text-mute">Team member</label>
+              <Select value={selectedEmail} onValueChange={setSelectedEmail} disabled={rosterLoading}>
+                <SelectTrigger className="h-9 text-[13px]">
+                  <SelectValue placeholder={rosterLoading ? "Loading roster…" : "Select a team member"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {roster.map((r) => (
+                    <SelectItem key={r.email} value={r.email}>
+                      <span className="flex items-center gap-2">
+                        {r.name}
+                        {r.is_new ? <Chip tone="brand">New member</Chip> : null}
+                        {r.has_kit ? <Chip tone="success">Kit created</Chip> : null}
                       </span>
-                    </div>
+                    </SelectItem>
                   ))}
-                </div>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
-            <p className="mt-3 text-[11px] text-mute italic">
-              The auth module has almost no linked commits — high knowledge risk area.
-            </p>
-          </Panel>
-        </div>
-      </PageSection>
 
-      {/* Section 4: Your first week */}
-      <PageSection label="Your first week">
-        <Panel className="border-l-4 border-l-brand">
-          <h3 className="text-[14px] font-semibold text-ink">
-            {SUGGESTED_FIRST_TICKET.key} — {SUGGESTED_FIRST_TICKET.title}
-          </h3>
-          <p className="section-label mt-3 mb-1.5">Why this ticket</p>
-          <ul className="space-y-1">
-            {SUGGESTED_FIRST_TICKET.reasons.map((r) => (
-              <li key={r} className="flex items-start gap-2 text-[13px] text-ink">
-                <span className="mt-0.5 text-success">✓</span>
-                {r}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-[12px] text-mute">
-            Status: {SUGGESTED_FIRST_TICKET.status} · Priority: {SUGGESTED_FIRST_TICKET.priority} ·
-            Epic: {SUGGESTED_FIRST_TICKET.epic}
-          </p>
-          <p className="mt-2 text-[11px] text-mute italic">
-            This recommendation is based on ticket complexity, documentation coverage, and current
-            team load.
-          </p>
+            {selectedEmail && !selected?.has_kit ? (
+              <div className="min-w-[220px]">
+                <label className="mb-1 block text-[11px] font-medium text-mute">Onboarding buddy</label>
+                <Select
+                  value={buddyOverride || suggestedBuddy?.email || ""}
+                  onValueChange={setBuddyOverride}
+                  disabled={personalLoading}
+                >
+                  <SelectTrigger className="h-9 text-[13px]">
+                    <SelectValue placeholder="Auto-suggested" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {buddyCandidates.map((r) => (
+                      <SelectItem key={r.email} value={r.email}>
+                        {r.name}
+                        {r.email === suggestedBuddy?.email ? " (suggested)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            <GhostButton
+              tone="brand"
+              onClick={handleCreate}
+              disabled={!selectedEmail || creating}
+              className="h-9 px-3 text-[13px]"
+            >
+              {creating ? <Loader2 className="animate-spin" /> : <Sparkles />}
+              {selected?.has_kit ? "Re-create kit" : "Add to onboarding"}
+            </GhostButton>
+          </div>
+          {selected?.has_kit && selected.kit_updated_at ? (
+            <p className="mt-2 text-[12px] text-mute">
+              Kit last created {new Date(selected.kit_updated_at).toLocaleString()} — showing exactly what was
+              frozen for {selected.name} below. Re-creating overwrites it with current data; this never happens
+              automatically.
+            </p>
+          ) : selectedEmail ? (
+            <p className="mt-2 text-[12px] text-mute">
+              No kit yet for {selected?.name} — the first-week section below is a live preview, not saved until you
+              click "Add to onboarding."
+            </p>
+          ) : null}
         </Panel>
+      </PageSection>
 
-        <div className="mt-4">
-          <Panel title="Key PRs to read first">
-            <ul>
-              {KEY_PRS.map((pr) => (
-                <li key={pr.key} className="border-b border-border py-2 last:border-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[12.5px] font-semibold text-brand">
-                      {pr.key}
-                    </span>
-                    <span className="flex-grow text-[13px] text-ink">{pr.title}</span>
-                    <span className="shrink-0 text-[11px] text-mute">{pr.comments} comments</span>
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-mute">{pr.note}</div>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-[11px] text-mute italic">
-              These are where the biggest technical debates happened. Reading them gives you 80% of
-              the architectural reasoning.
-            </p>
+      <PageSection label="Project notes — the two sections you write by hand">
+        <div className="grid gap-4 md:grid-cols-2">
+          <Panel title="Team norms">
+            <Textarea
+              value={teamNormsDraft}
+              onChange={(e) => setTeamNormsDraft(e.target.value)}
+              placeholder="Where does the team communicate day-to-day? What's expected on PR reviews and branch naming?"
+              className="min-h-[100px] text-[13px]"
+            />
+          </Panel>
+          <Panel title="Environment & setup">
+            <Textarea
+              value={envSetupDraft}
+              onChange={(e) => setEnvSetupDraft(e.target.value)}
+              placeholder="Repo clone URL, install steps, required env vars, how to run tests locally."
+              className="min-h-[100px] text-[13px]"
+            />
           </Panel>
         </div>
-
-        <div className="mt-4">
-          <Panel title="30-day milestones" icon={<Lightbulb className="size-3.5 text-mute" />}>
-            <ul className="space-y-2">
-              {MILESTONES.map((m) => (
-                <li key={m.day} className="flex items-center gap-2 text-[13px] text-ink">
-                  <span className="size-3.5 shrink-0 rounded-sm border border-border" />
-                  <span className="font-semibold text-mute">{m.day}:</span>
-                  {m.label}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-[11px] text-mute italic">
-              Teams that set explicit milestones cut new-hire ramp time from 6 weeks to 10 days.
-            </p>
-          </Panel>
+        <div className="mt-2 flex items-center justify-between">
+          <p className="text-[11px] text-mute">
+            Set once per project, not per person — every kit created from now on picks up whatever's saved here.
+          </p>
+          <Button size="sm" variant="outline" onClick={handleSaveNotes} disabled={savingNotes || !notesUnsaved}>
+            {savingNotes ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+            Save for this project
+          </Button>
         </div>
       </PageSection>
+
+      {commonLoading ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="size-5 animate-spin text-mute" />
+        </div>
+      ) : null}
+
+      {commonToShow ? <OnboardingSectionNav /> : null}
+      {commonToShow ? <OnboardingCommonSections content={commonToShow} /> : null}
+
+      {personalLoading ? (
+        <div className="flex justify-center py-4">
+          <Loader2 className="size-4 animate-spin text-mute" />
+        </div>
+      ) : selectedEmail ? (
+        <OnboardingFirstWeek content={personalToShow} />
+      ) : commonToShow ? (
+        <PageSection label="Your first week">
+          <Panel>
+            <p className="text-[13px] text-mute">
+              <Rocket className="mr-1.5 inline size-3.5" />
+              Select a team member above to preview their suggested first ticket and onboarding buddy — this is the
+              only part of the kit that depends on who's joining.
+            </p>
+          </Panel>
+        </PageSection>
+      ) : null}
     </AppShell>
   );
 }

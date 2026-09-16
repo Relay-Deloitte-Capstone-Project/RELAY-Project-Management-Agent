@@ -1026,7 +1026,7 @@ function NewProjectWizard() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-6 text-[13px] text-mute hover:border-brand hover:text-ink"
+                  className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-6 text-[13px] text-mute hover:border-border-strong hover:text-ink"
                 >
                   {sowFile ? (
                     <>

@@ -1,9 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { History, Shield, TriangleAlert } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { EmployeeBreakdown } from "@/components/relay/EmployeeBreakdown";
-import { MetricCard, PageSection, Panel, ProgressRow } from "@/components/relay/primitives";
+import {
+  MetricCard,
+  PageSection,
+  Panel,
+  ProgressRow,
+  SkeletonText,
+} from "@/components/relay/primitives";
 import { SprintBurndown } from "@/components/relay/SprintBurndown";
 import { weeklyActivity as mockWeeklyActivity } from "@/lib/mockData";
 import { useMyProject } from "@/lib/admin/useMyProject";
@@ -186,16 +192,16 @@ function ManagerDashboard() {
 
   return (
     <AppShell user={user} title="Dashboard">
-      <PageSection label="Team">
+      <PageSection label="Overview">
         <div className="grid grid-cols-4 gap-3">
-          <MetricCard label="Team members" value={teamCount ?? "—"} />
-          <MetricCard label="Open tickets" value={openTickets ?? "—"} tone="warning" />
           <MetricCard
             label="Ticket coverage"
             value={summary ? `${summary.scope.coverage_pct}%` : "—"}
-            tone="brand"
+            emphasis
           />
+          <MetricCard label="Open tickets" value={openTickets ?? "—"} tone="warning" />
           <MetricCard label="Scope alerts" value={scopeAlerts ?? "—"} tone="danger" />
+          <MetricCard label="Team members" value={teamCount ?? "—"} />
         </div>
       </PageSection>
 
@@ -233,38 +239,40 @@ function ManagerDashboard() {
         </div>
       </PageSection>
 
-      <PageSection>
-        <Panel title="Sprint history" icon={<History className="size-3.5 text-mute" />}>
-          {!sprintHistory ? (
-            <p className="text-[13px] text-mute">Loading…</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {sprintHistory.map((s) => (
-                <div key={s.id} className="flex items-center gap-3">
-                  <span className="w-40 shrink-0 truncate text-[12px] text-mute">{s.name}</span>
-                  <div className="h-1.5 flex-grow overflow-hidden rounded-full bg-surface-sunken">
-                    {s.completion_pct !== null && (
-                      <div
-                        className={`h-full rounded-full ${s.state === "active" ? "bg-brand" : "bg-success"}`}
-                        style={{ width: `${s.completion_pct}%` }}
-                      />
-                    )}
+      <PageSection label="Delivery health">
+        <div className="mb-4 grid grid-cols-3 gap-4">
+          <Panel
+            title="Sprint history"
+            icon={<History className="size-3.5 text-mute" />}
+            className="col-span-2"
+          >
+            {!sprintHistory ? (
+              <SkeletonText lines={4} />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {sprintHistory.map((s) => (
+                  <div key={s.id} className="flex items-center gap-3">
+                    <span className="w-40 shrink-0 truncate text-[12px] text-mute">{s.name}</span>
+                    <div className="h-1.5 flex-grow overflow-hidden rounded-full bg-surface-sunken">
+                      {s.completion_pct !== null && (
+                        <div
+                          className={`h-full rounded-full ${s.state === "active" ? "bg-brand" : "bg-success"}`}
+                          style={{ width: `${s.completion_pct}%` }}
+                        />
+                      )}
+                    </div>
+                    <span className="w-16 shrink-0 text-right text-[12px] text-mute">
+                      {s.completion_pct !== null ? `${s.completion_pct}%` : "not started"}
+                    </span>
                   </div>
-                  <span className="w-16 shrink-0 text-right text-[12px] text-mute">
-                    {s.completion_pct !== null ? `${s.completion_pct}%` : "not started"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Panel>
-      </PageSection>
+                ))}
+              </div>
+            )}
+          </Panel>
 
-      <PageSection>
-        <div className="grid grid-cols-2 gap-4">
           <Panel title="Scope health" icon={<Shield className="size-3.5 text-mute" />}>
             {scopeRows.length === 0 ? (
-              <p className="text-[13px] text-mute">Loading…</p>
+              <SkeletonText lines={3} />
             ) : (
               scopeRows.map((row) => (
                 <ProgressRow
@@ -277,10 +285,16 @@ function ManagerDashboard() {
               ))
             )}
           </Panel>
+        </div>
 
-          <Panel title="Risk signals" icon={<TriangleAlert className="size-3.5 text-mute" />}>
+        <div className="grid grid-cols-3 gap-4">
+          <Panel
+            title="Risk signals"
+            icon={<TriangleAlert className="size-3.5 text-mute" />}
+            className="col-span-2"
+          >
             <div className="flex flex-col gap-2">
-              {!riskSignals && <p className="text-[13px] text-mute">Loading…</p>}
+              {!riskSignals && <SkeletonText lines={3} />}
               {riskSignals?.length === 0 && (
                 <p className="text-[13px] text-mute">No risk signals right now.</p>
               )}
@@ -294,20 +308,29 @@ function ManagerDashboard() {
               ))}
             </div>
           </Panel>
-        </div>
-      </PageSection>
 
-      <PageSection
-        label="This week"
-        subtitle="Tickets closed reflects this project's seed data, not sustained weekly velocity."
-      >
-        <div className="grid grid-cols-4 gap-3">
-          <MetricCard label="Tickets closed" value={activity?.tickets_closed_this_week ?? "—"} />
-          <MetricCard label="PRs merged" value={mockWeeklyActivity[1]?.value ?? "—"} />
-          <MetricCard label="Questions asked" value={activity?.questions_asked ?? "—"} />
-          <MetricCard label="Notes captured" value={activity?.notes_captured ?? "—"} />
+          <Panel title="This week">
+            <div className="flex flex-col divide-y divide-border">
+              <WeekStat label="Tickets closed" value={activity?.tickets_closed_this_week ?? "—"} />
+              <WeekStat label="PRs merged" value={mockWeeklyActivity[1]?.value ?? "—"} />
+              <WeekStat label="Questions asked" value={activity?.questions_asked ?? "—"} />
+              <WeekStat label="Notes captured" value={activity?.notes_captured ?? "—"} />
+            </div>
+            <p className="mt-3 text-[11px] leading-relaxed text-mute">
+              Tickets closed reflects this project's seed data, not sustained weekly velocity.
+            </p>
+          </Panel>
         </div>
       </PageSection>
     </AppShell>
+  );
+}
+
+function WeekStat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between py-2 first:pt-0 last:pb-0">
+      <span className="text-[13px] text-mute">{label}</span>
+      <span className="text-[17px] font-semibold text-ink tabular-nums">{value}</span>
+    </div>
   );
 }
