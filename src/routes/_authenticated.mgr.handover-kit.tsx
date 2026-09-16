@@ -1,3 +1,4 @@
+import { teamMembers } from "@/lib/mockData";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Ban,
@@ -108,7 +109,9 @@ function HandoverKit() {
   const [jiraMembers, setJiraMembers] = useState<JiraMember[]>([]);
   const [jiraLoading, setJiraLoading] = useState(true);
 
-  const selectedJiraMember = jiraMembers.find((member) => member.account_id === personId);
+  const selectedJiraMember =
+    jiraMembers.find((member) => member.account_id === personId) ??
+    jiraMembers.find((member) => member.name === personId);
   const selectedMockPerson = selectedJiraMember
     ? LEAVING_PEOPLE.find(
         (member) =>
@@ -276,7 +279,15 @@ function HandoverKit() {
           leavingAccountId={personId}
         />
       )}
-      {tab === "Export kit" && <ExportKitTab />}
+      {tab === "Export kit" && (
+        <ExportKitTab
+          person={person}
+          firstName={firstName}
+          jiraTickets={jiraTickets}
+          jiraMembers={jiraMembers}
+          leavingAccountId={personId}
+        />
+      )}
     </AppShell>
   );
 }
@@ -373,7 +384,7 @@ function WorkStateTab({
               No open Jira tickets assigned to {person.name}.
             </p>
           ) : (
-            <div className="space-y-2">
+            <div className="max-h-[360px] overflow-y-auto space-y-2 pr-2">
               {openTickets.map((ticket) => (
                 <div key={ticket.key} className="rounded-md border border-border bg-card p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -382,9 +393,25 @@ function WorkStateTab({
 
                       <p className="mt-1 text-[13px] text-ink">{ticket.summary}</p>
 
-                      <p className="mt-1 text-[11px] text-mute">
-                        Status: {ticket.status} · Priority: {ticket.priority}
-                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-full border border-border bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-mute">
+                          {ticket.status}
+                        </span>
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                            ticket.priority.toLowerCase() === "critical"
+                              ? "bg-red-500/15 text-red-400 border border-red-500/30"
+                              : ticket.priority.toLowerCase() === "high"
+                                ? "bg-orange-500/15 text-orange-400 border border-orange-500/30"
+                                : ticket.priority.toLowerCase() === "medium"
+                                  ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30"
+                                  : "bg-green-500/15 text-green-400 border border-green-500/30",
+                          )}
+                        >
+                          {ticket.priority}
+                        </span>
+                      </div>
 
                       <p className="mt-1 text-[11px] text-mute">
                         Jira owner: {ticket.assignee || "Unassigned"}
@@ -672,7 +699,7 @@ function AssignCoverageTab({
                   </span>
                 </div>
 
-                <div className="space-y-2">
+                <div className="max-h-[330px] overflow-y-auto space-y-2 pr-2">
                   {assignedTickets.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-5 text-center text-[12px] text-mute">
                       No tickets assigned yet.
@@ -684,7 +711,25 @@ function AssignCoverageTab({
                           <div className="min-w-0">
                             <TicketKey>{t.key}</TicketKey>
                             <p className="mt-1 truncate text-[13px] text-ink">{t.summary}</p>
-                            <p className="mt-0.5 text-[11px] text-mute">Jira status: {t.status}</p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full border border-border bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-mute">
+                                {t.status}
+                              </span>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                  t.priority.toLowerCase() === "critical"
+                                    ? "bg-red-500/15 text-red-400 border border-red-500/30"
+                                    : t.priority.toLowerCase() === "high"
+                                      ? "bg-orange-500/15 text-orange-400 border border-orange-500/30"
+                                      : t.priority.toLowerCase() === "medium"
+                                        ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30"
+                                        : "bg-green-500/15 text-green-400 border border-green-500/30",
+                                )}
+                              >
+                                {t.priority}
+                              </span>
+                            </div>
                             <p className="mt-0.5 text-[11px] text-success">
                               Jira owner: {t.assignee}
                             </p>
@@ -758,7 +803,7 @@ function AssignCoverageTab({
                   </span>
                 </div>
 
-                <div className="space-y-2">
+                <div className="max-h-[330px] overflow-y-auto space-y-2 pr-2">
                   {unassignedTickets.length === 0 ? (
                     <div className="rounded-md border border-dashed border-border px-3 py-5 text-center text-[12px] text-success">
                       All tickets have been assigned.
@@ -770,7 +815,25 @@ function AssignCoverageTab({
                           <div className="min-w-0">
                             <TicketKey>{t.key}</TicketKey>
                             <p className="mt-1 truncate text-[13px] text-ink">{t.summary}</p>
-                            <p className="mt-0.5 text-[11px] text-mute">Jira status: {t.status}</p>
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full border border-border bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-mute">
+                                {t.status}
+                              </span>
+                              <span
+                                className={cn(
+                                  "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                  t.priority.toLowerCase() === "critical"
+                                    ? "bg-red-500/15 text-red-400 border border-red-500/30"
+                                    : t.priority.toLowerCase() === "high"
+                                      ? "bg-orange-500/15 text-orange-400 border border-orange-500/30"
+                                      : t.priority.toLowerCase() === "medium"
+                                        ? "bg-yellow-500/15 text-yellow-400 border border-yellow-500/30"
+                                        : "bg-green-500/15 text-green-400 border border-green-500/30",
+                                )}
+                              >
+                                {t.priority}
+                              </span>
+                            </div>
                           </div>
 
                           <div className="flex shrink-0 gap-1">
@@ -1070,47 +1133,724 @@ function KnowledgeRisksTab({
     </>
   );
 }
+function ExportKitTab({
+  person,
+  firstName,
+  jiraTickets,
+  jiraMembers,
+  leavingAccountId,
+}: {
+  person: LeavingPerson;
+  firstName: string;
+  jiraTickets: JiraTicket[];
+  jiraMembers: JiraMember[];
+  leavingAccountId: string;
+}) {
+  const selectedPersonName =
+    person.name && person.name !== "Select a developer"
+      ? person.name
+      : jiraMembers.find((member) => member.account_id === leavingAccountId)?.name ||
+        "Select a developer";
 
-function ExportKitTab() {
+  const hasDeveloper = Boolean(leavingAccountId && selectedPersonName !== "Select a developer");
+
+  /*
+   * IMPORTANT:
+   * Export only the tickets belonging to the outgoing developer.
+   * Do not export the complete KPD board.
+   */
+  const outgoingTickets = hasDeveloper
+    ? jiraTickets.filter((ticket) => ticket.assignee_account_id === leavingAccountId)
+    : [];
+
+  const openTickets = outgoingTickets.filter((ticket) => ticket.status.toLowerCase() !== "done");
+
+  const criticalTickets = openTickets.filter((ticket) => {
+    const priority = ticket.priority.toLowerCase();
+    return priority === "high" || priority === "critical";
+  });
+
+  /*
+   * These are the people who currently own the tickets after coverage
+   * assignments have been made.
+   */
+  const incomingOwners = Array.from(
+    new Set(
+      openTickets
+        .map((ticket) => ticket.assignee)
+        .filter((name): name is string => Boolean(name) && name !== selectedPersonName),
+    ),
+  );
+
+  const assignedCount = openTickets.filter(
+    (ticket) => Boolean(ticket.assignee) && ticket.assignee !== selectedPersonName,
+  ).length;
+
+  const unassignedCount = openTickets.filter(
+    (ticket) => !ticket.assignee || ticket.assignee === selectedPersonName,
+  ).length;
+
+  const generatedAt = new Date().toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const liveHandoverPath =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/mgr/handover-kit`
+      : "/mgr/handover-kit";
+
+  const [recipientId, setRecipientId] = useState("");
+
+  const recipient = jiraMembers.find((member) => member.account_id === recipientId);
+
+  const transferFullHandover = async () => {
+    console.log("🚀 TRANSFER BUTTON CLICKED");
+
+    if (!recipientId) {
+      toast.error("Please select a recipient first.");
+      return;
+    }
+
+    const recipient = jiraMembers.find((member) => member.account_id === recipientId);
+
+    if (!recipient) {
+      toast.error("Recipient could not be found.");
+      return;
+    }
+
+    // Resolve a stable person-page slug from the selected Jira recipient.
+    // Do NOT require the recipient to already exist in the local Relay directory.
+    const recipientProfile = teamMembers.find(
+      (member) => member.name?.trim().toLowerCase() === recipient.name?.trim().toLowerCase(),
+    );
+
+    const recipientProfileId =
+      recipientProfile?.id ??
+      recipient.name
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    console.log("✅ RECIPIENT PAGE RESOLVED", {
+      recipient: recipient.name,
+      recipientProfileId,
+      existingRelayProfile: Boolean(recipientProfile),
+    });
+
+    const transferredTicketKeys: string[] = [];
+    const failedTicketKeys: string[] = [];
+
+    console.log("📦 TRANSFER START", {
+      recipient: recipient.name,
+      recipientProfileId: recipientProfileId,
+      tickets: openTickets.length,
+    });
+
+    const batchSize = 5;
+
+    for (let i = 0; i < openTickets.length; i += batchSize) {
+      const batch = openTickets.slice(i, i + batchSize);
+
+      await Promise.all(
+        batch.map(async (ticket) => {
+          try {
+            const response = await fetch(
+              `${API_BASE}/api/handover/kpd/tickets/${encodeURIComponent(ticket.key)}/assignee`,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ account_id: recipient.account_id }),
+              },
+            );
+
+            if (response.ok) {
+              transferredTicketKeys.push(ticket.key);
+            } else {
+              failedTicketKeys.push(ticket.key);
+              console.error(`Failed to transfer ${ticket.key}:`, await response.text());
+            }
+          } catch (error) {
+            failedTicketKeys.push(ticket.key);
+            console.error(`Failed to transfer ${ticket.key}:`, error);
+          }
+        }),
+      );
+    }
+
+    const transfer = {
+      handoverId: `handover-${Date.now()}`,
+      outgoingDeveloper: selectedPersonName,
+      recipientId: recipientProfileId,
+      recipientJiraAccountId: recipient.account_id,
+      recipientName: recipient.name,
+      generatedAt,
+      source: "Relay Handover Kit",
+      summary: {
+        openTickets: openTickets.length,
+        highCritical: criticalTickets.length,
+        covered: assignedCount,
+        needsCoverage: unassignedCount,
+      },
+      currentWork: openTickets.map((ticket) => ({
+        key: ticket.key,
+        summary: ticket.summary,
+        status: ticket.status,
+        priority: ticket.priority,
+        assignee: ticket.assignee,
+        updated: ticket.updated,
+      })),
+      incomingOwners,
+      knowledge: {
+        title: `Knowledge transfer from ${selectedPersonName}`,
+        summary: `${selectedPersonName} handover transferred to ${recipient.name}.`,
+        risks: [],
+        aiHandoverSummary: `Review inherited Jira work, ownership, coverage risks, and current ticket context.`,
+        askProjectPath: "/ask-project",
+      },
+      liveHandoverPath: `/mgr/team/${recipientProfileId}`,
+    };
+
+    localStorage.setItem(
+      `relay-handover-transfer:${recipientProfileId}`,
+      JSON.stringify({
+        ...transfer,
+        transferredAt: new Date().toISOString(),
+        transferredFrom: selectedPersonName,
+        transferredTicketKeys,
+        transferStatus: failedTicketKeys.length ? "partial" : "completed",
+        failedTicketKeys,
+      }),
+    );
+
+    console.log("✅ TRANSFER SAVED", {
+      transferredTicketKeys,
+      failedTicketKeys,
+      destination: `/mgr/team/${recipientProfileId}`,
+    });
+
+    toast.success(
+      `${transferredTicketKeys.length} Jira item${
+        transferredTicketKeys.length === 1 ? "" : "s"
+      } transferred to ${recipient.name}.`,
+    );
+
+    setTimeout(() => {
+      window.location.assign(`/mgr/team/${encodeURIComponent(recipientProfileId)}`);
+    }, 300);
+  };
+
+  const copyMarkdown = async () => {
+    const markdown = [
+      `# Handover Snapshot — ${selectedPersonName}`,
+      "",
+      `Generated: ${generatedAt}`,
+      "",
+      "## Summary",
+      `- Open tickets: ${openTickets.length}`,
+      `- High / Critical: ${criticalTickets.length}`,
+      `- Covered: ${assignedCount}`,
+      `- Unassigned: ${unassignedCount}`,
+      "",
+      "## Current Work",
+      ...openTickets.map(
+        (ticket) =>
+          `- **${ticket.key}** — ${ticket.summary} — ${ticket.status} — ${
+            ticket.assignee || "Unassigned"
+          }`,
+      ),
+      "",
+      "## Incoming Owners",
+      ...(incomingOwners.length
+        ? incomingOwners.map((owner) => `- ${owner}`)
+        : ["- No replacement owners assigned"]),
+      "",
+      "## Knowledge Transfer",
+      `- AI handover summary: ${selectedPersonName}'s active Jira work and current ownership context.`,
+      `- Ask Project: ${
+        typeof window !== "undefined" ? `${window.location.origin}/ask-project` : "/ask-project"
+      }`,
+      "",
+      "## Live Handover",
+      liveHandoverPath,
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(markdown);
+      notifyExport();
+    } catch {
+      notifyExport();
+    }
+  };
+
+  const exportPdf = () => {
+    if (!hasDeveloper) {
+      notifyExport();
+      return;
+    }
+
+    window.print();
+  };
+
+  if (!hasDeveloper) {
+    return (
+      <div className="space-y-4">
+        <PageSection>
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5">
+            <div className="text-sm font-semibold text-amber-100">
+              Select a developer to create the handover snapshot
+            </div>
+            <div className="mt-1 text-xs text-amber-100/70">
+              The Export Kit will contain only that developer&apos;s open Jira work, coverage,
+              risks, and final handover state.
+            </div>
+          </div>
+        </PageSection>
+      </div>
+    );
+  }
+
   return (
-    <>
-      <PageSection subtitle="The complete package to send when someone transitions off the project.">
-        <div className="grid grid-cols-2 gap-4">
-          <Panel title="What's included" icon={<ClipboardList className="size-3.5 text-mute" />}>
-            <ul className="space-y-2">
-              {KIT_INCLUDED.map((item) => (
-                <li key={item} className="flex items-start gap-2 text-[13px] text-ink">
-                  <span className="mt-0.5 text-success">✓</span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </Panel>
-          <Panel title="What's NOT included" icon={<Ban className="size-3.5 text-mute" />}>
-            <ul className="space-y-2">
-              {KIT_EXCLUDED.map((item) => (
-                <li key={item} className="flex items-start gap-2 text-[13px] text-mute">
-                  <span className="mt-0.5 text-danger">✗</span>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </Panel>
+    <div className="space-y-4">
+      {/* Full handover transfer */}
+      <PageSection>
+        <div className="rounded-xl border border-brand/30 bg-brand-soft/10 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-brand">
+                Transfer full handover
+              </div>
+
+              <h3 className="mt-1 text-sm font-semibold text-slate-100">
+                Send {selectedPersonName}&apos;s complete handover to a teammate
+              </h3>
+
+              <p className="mt-1 max-w-2xl text-[11px] leading-5 text-slate-400">
+                Transfers current Jira work, ownership context, coverage risks, and an AI-generated
+                handover summary to the recipient&apos;s profile.
+              </p>
+            </div>
+
+            <div className="flex w-full shrink-0 flex-col gap-2 sm:flex-row lg:w-auto">
+              <Select value={recipientId} onValueChange={setRecipientId}>
+                <SelectTrigger className="h-9 w-full text-[12px] sm:w-[190px]">
+                  <SelectValue placeholder="Select recipient" />
+                </SelectTrigger>
+
+                <SelectContent>
+                  {jiraMembers
+                    .filter((member) => member.account_id !== leavingAccountId)
+                    .map((member) => (
+                      <SelectItem key={member.account_id} value={member.account_id}>
+                        {member.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+
+              <button
+                type="button"
+                aria-label="Transfer full handover"
+                onClick={() => {
+                  void transferFullHandover();
+                }}
+                className="relative z-[999999] inline-flex h-9 cursor-pointer pointer-events-auto select-none items-center justify-center rounded-md border border-slate-500 bg-slate-800 px-4 text-[12px] font-semibold text-slate-100 opacity-100 shadow-sm transition hover:bg-slate-700 active:scale-[0.98]"
+                style={{
+                  pointerEvents: "auto",
+                  position: "relative",
+                  zIndex: 999999,
+                  cursor: "pointer",
+                  opacity: 1,
+                }}
+              >
+                Transfer full handover →
+              </button>
+            </div>
+          </div>
         </div>
-        <p className="mt-3 text-[12px] text-mute italic">
-          This kit contains work state, not performance judgment.
-        </p>
       </PageSection>
 
+      {/* Snapshot header */}
+      <PageSection>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-300">
+                Frozen copy
+              </span>
+
+              <button
+                type="button"
+                onClick={exportPdf}
+                className="cursor-pointer text-xs font-medium text-brand hover:underline"
+              >
+                Handover Snapshot
+              </button>
+            </div>
+
+            <h2 className="text-xl font-semibold text-slate-100">
+              {selectedPersonName} — Handover Export
+            </h2>
+
+            <p className="mt-1 text-xs text-slate-400">Generated {generatedAt}</p>
+          </div>
+
+          <div className="text-right">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Handover date
+            </div>
+            <div className="mt-1 text-sm font-medium text-slate-300">{person.leavingDate}</div>
+          </div>
+        </div>
+      </PageSection>
+
+      {/* Snapshot metadata */}
+      <PageSection>
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Snapshot type
+            </div>
+            <div className="mt-1 text-xs font-medium text-slate-200">Dated & frozen</div>
+            <div className="mt-1 text-[10px] text-slate-500">
+              This copy will not update after export.
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Outgoing developer
+            </div>
+            <div className="mt-1 text-xs font-medium text-slate-200">{selectedPersonName}</div>
+            <div className="mt-1 text-[10px] text-slate-500">
+              Handover date: {person.leavingDate}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Source
+            </div>
+            <div className="mt-1 text-xs font-medium text-slate-200">Live Jira state</div>
+            <div className="mt-1 text-[10px] text-slate-500">Captured at {generatedAt}</div>
+          </div>
+        </div>
+      </PageSection>
+
+      {/* Summary metrics */}
+      <PageSection>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-100">Handover overview</h3>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Review the transfer state before exporting the frozen snapshot.
+            </p>
+          </div>
+
+          {unassignedCount > 0 && (
+            <GhostButton
+              tone="brand"
+              onClick={() => {
+                toast("Open the Assign coverage tab to assign replacement owners.");
+                const tabButton = Array.from(document.querySelectorAll("button")).find(
+                  (button) => button.textContent?.trim() === "Assign coverage",
+                );
+                tabButton?.click();
+              }}
+            >
+              Assign coverage →
+            </GhostButton>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="relative z-[99999] rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Open tickets
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-slate-100">{openTickets.length}</div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              High / Critical
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-slate-100">
+              {criticalTickets.length}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Covered
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-slate-100">{assignedCount}</div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Needs coverage
+            </div>
+            <div className="mt-1 text-2xl font-semibold text-slate-100">{unassignedCount}</div>
+          </div>
+        </div>
+      </PageSection>
+
+      {/* Main handover information */}
+      <div className="grid gap-4 lg:grid-cols-[1.45fr_1fr]">
+        {/* Current work */}
+        <PageSection>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-100">Current work state</h3>
+              <p className="mt-1 text-xs text-slate-500">Open Jira work owned by {firstName}.</p>
+            </div>
+
+            <span className="text-xs text-slate-500">{openTickets.length} open</span>
+          </div>
+
+          <div className="mt-3 max-h-[360px] space-y-2 overflow-y-auto pr-1">
+            {openTickets.length === 0 ? (
+              <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-4 text-xs text-slate-400">
+                No open Jira tickets are currently assigned to this developer.
+              </div>
+            ) : (
+              openTickets.map((ticket) => {
+                const covered = Boolean(ticket.assignee) && ticket.assignee !== selectedPersonName;
+
+                return (
+                  <div
+                    key={ticket.key}
+                    className="rounded-lg border border-slate-700 bg-slate-900/60 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-semibold text-slate-400">
+                            {ticket.key}
+                          </span>
+
+                          <span className="truncate text-sm font-medium text-slate-200">
+                            {ticket.summary}
+                          </span>
+                        </div>
+
+                        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
+                          <span>{ticket.status}</span>
+                          <span>{ticket.priority}</span>
+                          <span>Updated {ticket.updated}</span>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <div
+                          className={
+                            covered
+                              ? "text-[10px] font-semibold text-emerald-300"
+                              : "text-[10px] font-semibold text-amber-300"
+                          }
+                        >
+                          {covered ? "Covered" : "Needs coverage"}
+                        </div>
+
+                        <div className="mt-1 max-w-[120px] truncate text-[10px] text-slate-500">
+                          {covered ? ticket.assignee : "No replacement owner"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </PageSection>
+
+        {/* Ownership */}
+        <PageSection>
+          <h3 className="text-sm font-semibold text-slate-100">Ownership & coverage</h3>
+
+          <p className="mt-1 text-xs text-slate-500">
+            Replacement ownership captured from the current Jira state.
+          </p>
+
+          <div className="mt-3 space-y-2">
+            {incomingOwners.length === 0 ? (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+                  Coverage required
+                </div>
+                <div className="mt-1 text-xs text-amber-100/80">
+                  No replacement owner has been assigned to the open work yet.
+                </div>
+              </div>
+            ) : (
+              incomingOwners.map((owner) => {
+                const ownerTickets = openTickets.filter(
+                  (ticket) => ticket.assignee === owner,
+                ).length;
+
+                return (
+                  <div
+                    key={owner}
+                    className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2.5"
+                  >
+                    <span className="text-xs font-medium text-slate-200">{owner}</span>
+
+                    <span className="text-[10px] text-slate-500">
+                      {ownerTickets} {ownerTickets === 1 ? "ticket" : "tickets"}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div
+            className={
+              unassignedCount > 0
+                ? "mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
+                : "mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3"
+            }
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wider">
+              {unassignedCount > 0 ? "Coverage risk" : "Coverage status"}
+            </div>
+
+            <div className="mt-1 text-xs text-slate-300">
+              {unassignedCount > 0
+                ? `${unassignedCount} open ${
+                    unassignedCount === 1 ? "ticket needs" : "tickets need"
+                  } a replacement owner.`
+                : "All open tickets have replacement ownership."}
+            </div>
+          </div>
+        </PageSection>
+      </div>
+
+      {/* Risk + notes */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PageSection>
+          <h3 className="text-sm font-semibold text-slate-100">Knowledge & coverage risks</h3>
+
+          <div className="mt-3 space-y-2">
+            {criticalTickets.length > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="text-xs font-semibold text-amber-200">High / Critical work</div>
+                <div className="mt-1 text-[11px] text-amber-100/70">
+                  {criticalTickets.length} open high-priority or critical Jira{" "}
+                  {criticalTickets.length === 1 ? "item requires" : "items require"} explicit
+                  coverage.
+                </div>
+              </div>
+            )}
+
+            {unassignedCount > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                <div className="text-xs font-semibold text-amber-200">Ownership gap</div>
+                <div className="mt-1 text-[11px] text-amber-100/70">
+                  {unassignedCount} open {unassignedCount === 1 ? "item has" : "items have"} no
+                  replacement owner.
+                </div>
+              </div>
+            )}
+
+            {criticalTickets.length === 0 && unassignedCount === 0 && (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="text-xs font-semibold text-emerald-200">
+                  No immediate coverage gaps
+                </div>
+                <div className="mt-1 text-[11px] text-slate-400">
+                  Current Jira ownership provides coverage for all open work.
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-slate-700 bg-slate-900/50 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Knowledge concentration
+              </div>
+
+              <div className="mt-1 text-xs text-slate-300">
+                {openTickets.length === 0
+                  ? "No active Jira work requires knowledge transfer."
+                  : `${openTickets.length} active Jira item${
+                      openTickets.length === 1 ? "" : "s"
+                    } require${openTickets.length === 1 ? "s" : ""} handover context.`}
+              </div>
+
+              <div className="mt-2 text-[10px] text-slate-500">
+                Bus-factor calculation will be sourced from live module ownership when the handover
+                backend is enabled.
+              </div>
+            </div>
+          </div>
+        </PageSection>
+
+        <PageSection>
+          <h3 className="text-sm font-semibold text-slate-100">Approved handover notes</h3>
+
+          <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/50 p-4">
+            <div className="text-xs font-medium text-slate-300">No approved notes recorded</div>
+
+            <div className="mt-1 text-[11px] leading-5 text-slate-500">
+              Notes should appear here only after they have been approved for inclusion in the
+              frozen handover snapshot.
+            </div>
+          </div>
+        </PageSection>
+      </div>
+
+      {/* Live link */}
+      <PageSection>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-100">Live Handover Kit</h3>
+
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">
+              This export is a frozen snapshot. The live Handover Kit remains the source of truth
+              for current ownership, ticket status and permissions.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-right">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              Live link
+            </div>
+            <a
+              href={liveHandoverPath}
+              className="mt-1 block text-xs font-medium text-brand hover:underline"
+            >
+              Open live Handover Kit →
+            </a>
+          </div>
+        </div>
+      </PageSection>
+
+      {/* Export actions */}
       <PageSection>
         <div className="flex flex-wrap gap-2">
-          <GhostButton tone="brand" onClick={notifyExport}>
+          <GhostButton
+            tone="brand"
+            onClick={() => {
+              window.print();
+            }}
+          >
             Preview full kit
           </GhostButton>
-          <GhostButton onClick={notifyExport}>Copy as Markdown</GhostButton>
-          <GhostButton onClick={notifyExport}>Export PDF</GhostButton>
+
+          <GhostButton onClick={copyMarkdown}>Copy as Markdown</GhostButton>
+
+          <GhostButton onClick={exportPdf}>Export PDF</GhostButton>
         </div>
+
+        <p className="mt-2 text-[10px] text-slate-500">
+          PDF export creates a dated frozen copy of the current handover state.
+        </p>
       </PageSection>
-    </>
+    </div>
   );
 }
