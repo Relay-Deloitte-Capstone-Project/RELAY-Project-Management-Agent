@@ -66,7 +66,7 @@ function DocCard({ doc, onOpen }: { doc: PmDocument; onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
-      className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3.5 text-left transition-colors duration-150 hover:border-brand"
+      className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3.5 text-left transition-colors duration-150 hover:border-border-strong"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

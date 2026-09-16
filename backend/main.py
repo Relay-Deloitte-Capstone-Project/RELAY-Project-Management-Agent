@@ -22,8 +22,10 @@ from api.admin_projects import router as admin_projects_router  # noqa: E402
 from api.analytics import router as analytics_router  # noqa: E402
 from api.documents import router as documents_router  # noqa: E402
 from api.handover import router as handover_router  # noqa: E402
+from api.knowledge import router as knowledge_router  # noqa: E402
 from api.llm import build_providers  # noqa: E402
 from api.me import router as me_router  # noqa: E402
+from api.onboarding import router as onboarding_router  # noqa: E402
 from api.project import router as project_router  # noqa: E402
 from api.query import load_embedding_model, router as query_router  # noqa: E402
 from api.scope import router as scope_router  # noqa: E402
@@ -171,13 +173,23 @@ app.include_router(scratchpad_router)
 app.include_router(analytics_router)
 app.include_router(project_router)
 app.include_router(handover_router)
+app.include_router(knowledge_router)
 app.include_router(scope_router)
 app.include_router(sync_router)
 app.include_router(sow_router)
 app.include_router(documents_router)
+app.include_router(onboarding_router)
 
 
 @app.get("/health")
 async def health(request: Request):
-    # Kept deliberately cheap — this is what the keep-alive pinger hits.
-    return {"status": "ok", "model_ready": request.app.state.model_ready.is_set()}
+    # This is what both the keep-alive pinger and Render's own health check hit,
+    # so a DB hiccup must never turn into a non-200 here (Render would restart the
+    # service). The SELECT 1 exists only to reset Neon's own idle-suspend timer —
+    # its result/failure is reported but never allowed to change the status code.
+    db_ok = True
+    try:
+        await asyncio.wait_for(request.app.state.pool.fetchval("SELECT 1"), timeout=5)
+    except Exception:
+        db_ok = False
+    return {"status": "ok", "model_ready": request.app.state.model_ready.is_set(), "db_ok": db_ok}

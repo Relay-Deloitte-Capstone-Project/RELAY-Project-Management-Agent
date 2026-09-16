@@ -1,8 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ChevronRight, GitCommitHorizontal, Loader2, NotebookPen, ShieldAlert } from "lucide-react";
+import { ChevronRight, GitCommitHorizontal, NotebookPen, ShieldAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import { Avatar, Chip, MetricCard, PageSection, Panel } from "@/components/relay/primitives";
+import {
+  Avatar,
+  Chip,
+  MetricCard,
+  PageSection,
+  Panel,
+  SkeletonRows,
+} from "@/components/relay/primitives";
 import { listTeamRoster } from "@/lib/team/functions";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +68,18 @@ type RosterEntry = {
 type ActivityEntry = { user_id: string; questions_asked: number; chat_usage_pct: number };
 type Member = ContinuityRow & { initials: string; chatUsagePct: number | null };
 
+type Workload = {
+  breakdown: { assignee: string; in_progress: number; to_do: number; open_total: number }[];
+  unassigned: number;
+};
+
+// Bars are scaled against the busiest queue so relative load is readable, but
+// rows stay alphabetical — the chart shows capacity, it never ranks people.
+function workloadPct(count: number, max: number): number {
+  if (max <= 0) return 0;
+  return (count / max) * 100;
+}
+
 function relativeDays(iso: string | null): string {
   if (!iso) return "no commits";
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
@@ -73,6 +92,24 @@ function TeamOverview() {
   const { user } = Route.useRouteContext();
   const [members, setMembers] = useState<Member[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [workload, setWorkload] = useState<Workload | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/analytics/workload`);
+        if (!res.ok) return;
+        const json: Workload = await res.json();
+        if (!cancelled) setWorkload(json);
+      } catch {
+        // Panel keeps its skeleton; the rest of the page is unaffected.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,6 +158,10 @@ function TeamOverview() {
   const totalUndocumented = active.reduce((sum, m) => sum + m.undocumented_in_flight, 0);
   const totalNotes = active.reduce((sum, m) => sum + m.notes_approved, 0);
 
+  const workloadMax = workload
+    ? Math.max(...workload.breakdown.map((p) => p.open_total), 1)
+    : 1;
+
   return (
     <AppShell user={user} title="Team overview">
       <PageSection
@@ -152,9 +193,7 @@ function TeamOverview() {
         <Panel>
           {error && <p className="p-3 text-[13px] text-danger">{error}</p>}
           {!members && !error && (
-            <div className="flex items-center gap-2 p-3 text-[13px] text-mute">
-              <Loader2 className="size-3.5 animate-spin" /> Loading…
-            </div>
+            <SkeletonRows rows={5} className="p-3" />
           )}
           {members && active.length === 0 && !error && (
             <p className="p-3 text-[13px] text-mute">
@@ -236,6 +275,58 @@ function TeamOverview() {
                 </li>
               ))}
             </ul>
+          )}
+        </Panel>
+      </PageSection>
+
+      <PageSection
+        label="Current workload"
+        subtitle="Open tickets currently assigned to each person. Capacity only — completed work is deliberately excluded, and names are listed alphabetically, never ranked."
+      >
+        <Panel>
+          {!workload ? (
+            <SkeletonRows rows={5} />
+          ) : (
+            <>
+              <div className="flex flex-col gap-2.5">
+                {workload.breakdown.map((person) => (
+                  <div key={person.assignee} className="flex items-center gap-3">
+                    <span className="w-36 shrink-0 truncate text-[13px] text-ink">
+                      {person.assignee}
+                    </span>
+                    <div className="flex h-2 flex-grow overflow-hidden rounded-full bg-surface-sunken">
+                      <div
+                        className="h-full bg-warning"
+                        style={{ width: `${workloadPct(person.in_progress, workloadMax)}%` }}
+                        title={`${person.in_progress} in progress`}
+                      />
+                      <div
+                        className="h-full bg-mute"
+                        style={{ width: `${workloadPct(person.to_do, workloadMax)}%` }}
+                        title={`${person.to_do} to do`}
+                      />
+                    </div>
+                    <span className="w-8 shrink-0 text-right text-[13px] font-semibold text-ink tabular-nums">
+                      {person.open_total}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
+                <span className="flex items-center gap-3 text-[11px] text-mute">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-warning" /> In progress
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-mute" /> To do
+                  </span>
+                </span>
+                {workload.unassigned > 0 ? (
+                  <Chip tone="danger">{workload.unassigned} tickets unassigned</Chip>
+                ) : null}
+              </div>
+            </>
           )}
         </Panel>
       </PageSection>

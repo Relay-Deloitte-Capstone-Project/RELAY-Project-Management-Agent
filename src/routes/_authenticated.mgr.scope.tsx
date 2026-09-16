@@ -84,6 +84,14 @@ function complianceTone(percent: number) {
   return "text-danger";
 }
 
+// Bars carried the same green regardless of value, so a deliverable sitting at
+// 0% compliance looked identical to one at 93%. Fill now tracks the label.
+function complianceFill(percent: number) {
+  if (percent >= 80) return "bg-success";
+  if (percent >= 50) return "bg-warning";
+  return "bg-danger";
+}
+
 function ScopeGuardian() {
   const { user } = Route.useRouteContext();
 
@@ -348,7 +356,9 @@ function ScopeGuardian() {
 
                   <div className="flex h-[125px] w-full items-end justify-center">
                     <div
-                      className="w-[65%] rounded-t-md bg-success/80 transition-all hover:bg-success"
+                      className={`w-[65%] rounded-t-md opacity-80 transition-all hover:opacity-100 ${complianceFill(
+                        d.compliance_percent,
+                      )}`}
                       style={{
                         height: `${Math.max(d.compliance_percent, 2)}%`,
                       }}
@@ -399,7 +409,9 @@ function ScopeGuardian() {
 
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-border">
                       <div
-                        className="h-full rounded-full bg-success transition-all"
+                        className={`h-full rounded-full transition-all ${complianceFill(
+                          d.compliance_percent,
+                        )}`}
                         style={{
                           width: `${d.compliance_percent}%`,
                         }}

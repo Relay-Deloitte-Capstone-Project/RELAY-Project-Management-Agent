@@ -6,18 +6,25 @@
 
 /*
  * RELAY design system.
- * Warm off-white surface, near-black sidebar, indigo brand accent.
- * All colors are oklch semantic tokens — never hardcode colors in components.
+ *
+ * Near-monochrome by design: warm cream + white in light, near-black layered
+ * surfaces in dark. Ink (near-black) is the primary action color and inverts to
+ * near-white in dark mode — emphasis comes from flipping the surface, not from
+ * painting it a brand color. One warm clay `--highlight` is the only decorative
+ * accent and is used sparingly; saturated color is reserved for genuine state
+ * (success / warning / danger) so it still means something when it appears.
+ *
+ * All colors are semantic tokens — never hardcode colors in components.
  */
 
 @theme inline {
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 10px;
-  --radius-2xl: 12px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-serif: Georgia, "Times New Roman", serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
@@ -33,18 +40,23 @@
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--surface-sunken);
   --color-muted-foreground: var(--mute);
-  --color-accent: var(--brand-soft);
-  --color-accent-foreground: var(--brand);
+  /* shadcn's `accent` = subtle hover fill, not the brand accent. Relay's real
+     decorative accent is `--highlight` below. */
+  --color-accent: var(--surface-sunken);
+  --color-accent-foreground: var(--foreground);
   --color-destructive: var(--danger);
   --color-destructive-foreground: var(--brand-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--border);
-  --color-ring: var(--brand);
+  --color-ring: var(--highlight);
   --color-ring-offset-background: var(--background);
 
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
   --color-brand-foreground: var(--brand-foreground);
+  --color-highlight: var(--highlight);
+  --color-highlight-soft: var(--highlight-soft);
   --color-ink: var(--foreground);
   --color-mute: var(--mute);
   --color-surface: var(--background);
@@ -63,111 +75,113 @@
   --color-sidebar: var(--sidebar);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-muted: var(--sidebar-muted);
 
-  --color-chart-1: var(--brand);
-  --color-chart-2: var(--success);
-  --color-chart-3: var(--warning);
-  --color-chart-4: var(--danger);
-  --color-chart-5: var(--mute);
+  /* Categorical ramp for charts — deliberately NOT the semantic colors, so a
+     five-series chart never implies "good / warning / bad" about its categories. */
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
 }
 
 :root {
-  --radius: 8px;
+  --radius: 12px;
 
-  /* Base palette = "Clear Sky" (day). Each :root[data-period] block below
-     overrides these with its own named palette (see the design system this
-     was drafted from: Morning Dew / Clear Sky / Golden Hour / Midnight). */
-  --background: #f0f5fa;
-  --surface-sunken: #f0f5fa;
+  /* Light — warm cream page, white cards, ink type. */
+  --background: #f4f3ee;
+  --surface-sunken: #eae8e0;
   --card: #ffffff;
-  --foreground: #2a4365;
-  --mute: #65768a; /* darkened from the raw palette's #7e93ac — fails WCAG AA as text otherwise */
-  --border: #dce7f2;
+  --foreground: #1f2124;
+  --mute: #6c6c66;
+  --border: #e3e1d9;
+  --border-strong: #cfccc1;
 
-  --brand: #4779a6; /* darkened from the raw palette's #5b9bd5 — brand doubles as link/ticket-key text, which needs 4.5:1 against --card */
-  --brand-soft: #e6f0f9;
+  /* Primary action = ink. Buttons/active states invert the surface. */
+  --brand: #1f2124;
+  --brand-soft: #eae8e0;
   --brand-foreground: #ffffff;
 
-  --success: oklch(0.627 0.17 149.2);
-  --success-soft: oklch(0.982 0.018 155.8);
-  --warning: oklch(0.666 0.157 58.3);
-  --warning-soft: oklch(0.987 0.021 95.3);
-  --warning-border: oklch(0.879 0.153 91.6);
-  --warning-strong: oklch(0.473 0.125 46.2);
-  --danger: oklch(0.577 0.215 27.3);
-  --danger-soft: oklch(0.971 0.013 17.4);
-  --violet-soft: oklch(0.962 0.02 295.2);
+  /* The one decorative accent. Used sparingly — active markers, focus rings,
+     the single most important figure on a screen. */
+  --highlight: #b4622e;
+  --highlight-soft: #f8ece3;
 
-  --sidebar: oklch(0.169 0.002 286.2);
-  --sidebar-border: oklch(0.236 0.004 286.1);
-  --sidebar-active: oklch(0.227 0.004 286.1);
-  --sidebar-foreground: oklch(1 0 0);
-  --sidebar-muted: oklch(0.551 0.023 264.4);
+  /* Muted state colors — desaturated so they read as information, not alarm. */
+  --success: #4a7c59;
+  --success-soft: #e9f0ea;
+  --warning: #8a6a2f;
+  --warning-soft: #f5efe1;
+  --warning-border: #d9c391;
+  --warning-strong: #6b5122;
+  --danger: #8f2f33;
+  --danger-soft: #f6e8e8;
+  --violet-soft: #ece9f2;
 
-  --period-accent: #3d7ab8;
+  --sidebar: #ffffff;
+  --sidebar-border: #e3e1d9;
+  --sidebar-active: #1f2124;
+  --sidebar-active-foreground: #ffffff;
+  --sidebar-foreground: #1f2124;
+  --sidebar-muted: #6c6c66;
+
+  --chart-1: #4a7c59;
+  --chart-2: #b4622e;
+  --chart-3: #5c6b8a;
+  --chart-4: #8a6a2f;
+  --chart-5: #8c6b86;
+
+  --shadow-card:
+    0 1px 2px rgba(31, 33, 36, 0.04),
+    0 1px 3px rgba(31, 33, 36, 0.03);
 }
 
-/* Morning Dew — warm, soft, energizing, like golden hour light. */
-:root[data-period="dawn"]:not(.dark) {
-  --background: #faf6f0;
-  --surface-sunken: #faf6f0;
-  --card: #ffffff;
-  --foreground: #5c4a3a;
-  --mute: #7e7264; /* darkened from the raw palette's #a0907e for text-contrast */
-  --border: #e9ddcd;
+/* Dark — near-black canvas with a luminance ladder for elevation. Shadows
+   barely register on dark surfaces, so depth comes from surface steps. */
+.dark {
+  --background: #0d0e10;
+  --surface-sunken: #131417;
+  --card: #17191c;
+  --foreground: #e8e9ea;
+  --mute: #8b9096;
+  --border: #25282d;
+  --border-strong: #363a41;
 
-  --brand: #946c4f; /* darkened from the raw palette's #e8a87c for text-contrast (brand is also link/ticket-key text) */
-  --brand-soft: #fcf2eb;
-  --brand-foreground: #ffffff;
+  /* Ink inverts: the primary action is now near-white on near-black. */
+  --brand: #f2f3f4;
+  --brand-soft: #1e2126;
+  --brand-foreground: #0d0e10;
 
-  --period-accent: #c17f59;
-}
+  --highlight: #e08a54;
+  --highlight-soft: #2a1f18;
 
-/* Golden Hour — warm, winding down, social, transition to relaxation. */
-:root[data-period="evening"]:not(.dark) {
-  --background: #faf3ef;
-  --surface-sunken: #faf3ef;
-  --card: #ffffff;
-  --foreground: #5c3020;
-  --mute: #906c5a; /* darkened from the raw palette's #a67c68 for text-contrast */
-  --border: #efdcd0;
+  --success: #7fae8a;
+  --success-soft: #1a2620;
+  --warning: #c9a55f;
+  --warning-soft: #262016;
+  --warning-border: #5a4a26;
+  --warning-strong: #e3c68a;
+  --danger: #d2726f;
+  --danger-soft: #2a1a1a;
+  --violet-soft: #21202a;
 
-  --brand: #bd5636; /* darkened slightly from the raw palette's #c75b39 for text-contrast */
-  --brand-soft: #f7e6e1;
-  --brand-foreground: #ffffff;
+  --sidebar: #0a0b0d;
+  --sidebar-border: #1e2126;
+  --sidebar-active: #f2f3f4;
+  --sidebar-active-foreground: #0d0e10;
+  --sidebar-foreground: #e8e9ea;
+  --sidebar-muted: #7d848b;
 
-  --period-accent: #a64d2e;
-}
+  --chart-1: #7fae8a;
+  --chart-2: #e08a54;
+  --chart-3: #8b9bc4;
+  --chart-4: #c9a55f;
+  --chart-5: #b494ad;
 
-/* Midnight — deep, calm, focused, easy on the eyes in low light. Also what
-   the manual dark-mode toggle switches to, regardless of time of day. */
-.dark,
-:root[data-period="night"] {
-  --background: #0f1620;
-  --surface-sunken: #141d2b;
-  --card: #1b2636;
-  --foreground: #d8e0ea;
-  --mute: #8ca0b8;
-  --border: #263449;
-
-  /* The raw palette's Primary (#2c3e5a) is too dark to work as text against
-     this dark background (brand also drives link/ticket-key text) — lightened
-     for legibility, with a dark brand-foreground to match (inverted from the
-     light periods, same pattern the old dark theme used). */
-  --brand: #858f9f;
-  --brand-soft: #15202e;
-  --brand-foreground: #0f1620;
-
-  --success-soft: oklch(0.29 0.05 155);
-  --warning-soft: oklch(0.3 0.05 80);
-  --warning-border: oklch(0.45 0.1 91);
-  --warning-strong: oklch(0.85 0.09 91);
-  --danger-soft: oklch(0.3 0.07 22);
-  --violet-soft: oklch(0.29 0.05 295);
-
-  --period-accent: #8ab4c7;
+  --shadow-card: none;
 }
 
 @layer base {
@@ -185,7 +199,24 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
-    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Keyboard focus is the one place the highlight accent always appears. Mouse
+     clicks don't trigger :focus-visible, so this never fires on ordinary use. */
+  :focus-visible {
+    outline: 2px solid var(--color-highlight);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -193,21 +224,35 @@
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--color-mute);
 }
 
+/* Softens the bottom edge of an internal scroll area so it's visibly "more
+   below" rather than a hard crop. Pair with overflow-y-auto. */
+@utility scroll-fade {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 20px), transparent 100%);
+}
+
 @utility ticket-key {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-brand);
+  color: var(--color-ink);
+  background: var(--color-surface-sunken);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
 }
 
 /* ============================================================
  * LANDING SCREEN — time-of-day palettes, ambient icons,
  * scroll-to-enter transition. Namespaced under `--land-*` so it
  * never collides with the app-shell's semantic tokens above.
+ * The app itself no longer shifts with the clock; this screen
+ * keeps the effect deliberately, as a first impression.
  * ============================================================ */
 
 .landing {
@@ -348,18 +393,4 @@
   transform: translateY(-100%);
   opacity: 0;
   pointer-events: none;
-}
-
-/* Topbar period chip */
-.period-chip {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 500;
-  font-family: var(--font-sans);
-  background: var(--accent-soft, var(--color-brand-soft));
-  color: var(--accent, var(--color-brand));
 }

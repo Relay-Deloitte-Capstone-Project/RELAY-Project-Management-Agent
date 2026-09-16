@@ -369,7 +369,7 @@ function AskProject() {
       type="button"
       onClick={() => setSidebarOpen((o) => !o)}
       title={sidebarOpen ? "Hide chat history" : "Show chat history"}
-      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-mute transition-colors duration-150 hover:border-brand hover:text-ink [&_svg]:size-4"
+      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-mute transition-colors duration-150 hover:border-border-strong hover:text-ink [&_svg]:size-4"
     >
       {sidebarOpen ? <PanelLeftClose /> : <PanelLeft />}
     </button>
@@ -403,7 +403,7 @@ function AskProject() {
               <button
                 type="button"
                 onClick={handleNewChat}
-                className="inline-flex h-8 flex-grow items-center justify-center gap-1.5 rounded-md border border-border bg-card text-[13px] font-medium text-ink transition-colors duration-150 hover:border-brand [&_svg]:size-3.5"
+                className="inline-flex h-8 flex-grow items-center justify-center gap-1.5 rounded-md border border-border bg-card text-[13px] font-medium text-ink transition-colors duration-150 hover:border-border-strong [&_svg]:size-3.5"
               >
                 <Plus /> New chat
               </button>

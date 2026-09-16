@@ -3,6 +3,7 @@ import {
   Archive,
   BarChart3,
   Boxes,
+  Brain,
   Database,
   FileStack,
   FolderCog,
@@ -17,14 +18,11 @@ import {
   Settings,
   Shield,
   Sun,
-  Sunrise,
-  Sunset,
   TriangleAlert,
   Users,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { periodConfig, useTimePeriod, type Period } from "@/hooks/useTimePeriod";
 import type { Role, SessionUser } from "@/lib/auth/types";
 import { SignOutButton } from "./SignOutButton";
 
@@ -39,6 +37,7 @@ const NAV: Record<Role, NavGroup[]> = {
         { to: "/dev/work", label: "My work", icon: <LayoutGrid /> },
         { to: "/dev/ask", label: "Ask project", icon: <MessageSquare /> },
         { to: "/dev/scratchpad", label: "Scratchpad", icon: <Pencil /> },
+        { to: "/dev/onboarding-kit", label: "Onboarding kit", icon: <Rocket /> },
       ],
     },
     {
@@ -90,6 +89,7 @@ const NAV: Record<Role, NavGroup[]> = {
     {
       label: "System",
       items: [
+        { to: "/admin/knowledge-base", label: "Knowledge base", icon: <Brain /> },
         { to: "/admin/ingestion", label: "Ingestion logs", icon: <Database /> },
         { to: "/admin/dashboard", label: "System health", icon: <BarChart3 /> },
         { to: "/admin/governance", label: "Data governance", icon: <Archive /> },
@@ -140,24 +140,6 @@ export function ThemeToggle({ dark, toggle }: { dark: boolean; toggle: () => voi
   );
 }
 
-const PERIOD_ICON: Record<Period, typeof Sunrise> = {
-  dawn: Sunrise,
-  day: Sun,
-  evening: Sunset,
-  night: Moon,
-};
-
-function PeriodChip({ period }: { period: Period }) {
-  const config = periodConfig[period];
-  const Icon = PERIOD_ICON[period];
-  return (
-    <div className="period-chip" style={{ background: config.accentSoft, color: config.accent }}>
-      <Icon size={13} />
-      <span>{config.label}</span>
-    </div>
-  );
-}
-
 function Sidebar({ role }: { role: Role }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
@@ -165,10 +147,7 @@ function Sidebar({ role }: { role: Role }) {
         <span className="font-mono text-[13px] tracking-[3px] text-sidebar-foreground uppercase">
           Relay
         </span>
-        <span
-          className="ml-1.5 inline-block size-1.5 rounded-full align-middle"
-          style={{ background: "var(--period-accent)" }}
-        />
+        <span className="ml-1.5 inline-block size-1.5 rounded-full bg-highlight align-middle" />
       </Link>
 
       <nav className="flex-grow px-3">
@@ -181,10 +160,10 @@ function Sidebar({ role }: { role: Role }) {
               <Link
                 key={item.to}
                 to={item.to}
-                className="flex h-9 items-center gap-2.5 rounded-md border-l-2 border-l-transparent px-2 text-[13px] font-medium text-sidebar-muted transition-colors duration-150 hover:bg-sidebar-active hover:text-sidebar-foreground [&_svg]:size-3.5"
+                className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-sidebar-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-sidebar-foreground [&_svg]:size-3.5"
                 activeProps={{
                   className:
-                    "bg-sidebar-active !text-[var(--period-accent)] !border-l-[var(--period-accent)]",
+                    "!bg-sidebar-active !text-sidebar-active-foreground hover:!bg-sidebar-active",
                 }}
               >
                 {item.icon}
@@ -222,7 +201,6 @@ export function AppShell({
   headerExtra?: ReactNode;
 }) {
   const { dark, toggle } = useDarkMode();
-  const period = useTimePeriod();
 
   // Fire-and-forget wake-up ping: users with a saved session skip the login
   // page (which has its own ping), so authenticated pages poke the backend
@@ -240,7 +218,6 @@ export function AppShell({
           <h1 className="text-[15px] font-semibold text-ink">{title}</h1>
           <div className="flex items-center gap-3">
             {headerExtra}
-            <PeriodChip period={period} />
             <ThemeToggle dark={dark} toggle={toggle} />
             <div
               className="flex items-center gap-2 rounded-full border border-border py-1 pr-2.5 pl-1"

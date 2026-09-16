@@ -104,6 +104,13 @@ async def search_issues(jql: str, fields: str, max_results: int = 100) -> list:
     return issues
 
 
+async def epic_issues(epic_key: str, fields: str = "status") -> list:
+    """Every issue under one epic. Jira's v3 API exposes the epic link as the
+    issue's `parent`, the same field api/project.py reads back as epic_key.
+    """
+    return await search_issues(f"parent = {epic_key}", fields)
+
+
 async def assignable_users(project_key: str = PROJECT_KEY) -> list:
     data = await get("/rest/api/3/user/assignable/search", {"project": project_key, "maxResults": 50})
     return data

@@ -33,6 +33,8 @@ import {
   KIT_EXCLUDED,
   KIT_INCLUDED,
   LEAVING_PEOPLE,
+  mockActivityForPerson,
+  mockBranchesForPerson,
   TEAM_MEMBER_OPTIONS,
   type LeavingPerson,
 } from "@/lib/mgr/handoverKitMock";
@@ -134,9 +136,27 @@ function HandoverKit() {
     recommendations: [],
   };
 
+  // Real KPD Jira members never match LEAVING_PEOPLE's illustrative names, so
+  // this is the path every actual person takes. Real Jira commit/branch data
+  // per person isn't wired up yet, so fill with deterministic mock branches
+  // and activity instead of leaving those panels empty for the whole team.
+  const mockBranches = selectedJiraMember ? mockBranchesForPerson(selectedJiraMember.account_id) : [];
+  const mockActivity = selectedJiraMember
+    ? mockActivityForPerson(selectedJiraMember.account_id)
+    : [];
+
   const person: LeavingPerson = selectedMockPerson
     ? { ...selectedMockPerson, id: personId as LeavingPerson["id"], name: selectedJiraMember!.name }
-    : emptyPerson;
+    : selectedJiraMember
+      ? {
+          ...emptyPerson,
+          id: personId as LeavingPerson["id"],
+          name: selectedJiraMember.name,
+          branches: mockBranches,
+          recentActivity: mockActivity,
+          metrics: { ...emptyPerson.metrics, unmergedBranches: mockBranches.length },
+        }
+      : emptyPerson;
   const firstName = person.name.split(" ")[0] ?? person.name;
 
   useEffect(() => {
@@ -1015,7 +1035,7 @@ function KnowledgeRisksTab({
   return (
     <>
       <PageSection label={`What only ${firstName} knows — inferred from Jira work`}>
-        <div className="space-y-2">
+        <div className="scroll-fade max-h-[520px] space-y-2 overflow-y-auto pr-1">
           {criticalTickets.length === 0 && openTickets.length === 0 ? (
             <div className="rounded-lg border border-border bg-card px-4 py-3">
               <p className="text-[13px] text-mute">No open Jira work was found for {firstName}.</p>

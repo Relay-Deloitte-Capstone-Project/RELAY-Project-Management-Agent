@@ -678,7 +678,7 @@ function Scratchpad() {
             <DialogTrigger asChild>
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[13px] font-medium text-mute transition-colors duration-150 hover:border-brand hover:text-brand [&_svg]:size-3"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[13px] font-medium text-mute transition-colors duration-150 hover:border-border-strong hover:text-ink [&_svg]:size-3"
               >
                 <Plus /> Write a note
               </button>

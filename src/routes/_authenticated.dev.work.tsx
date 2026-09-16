@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { GitBranch, ListChecks, Loader2, TriangleAlert } from "lucide-react";
+import { GitBranch, Inbox, ListChecks, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import {
@@ -8,6 +8,7 @@ import {
   MetricCard,
   Panel,
   PageSection,
+  SkeletonRows,
   TicketKey,
 } from "@/components/relay/primitives";
 import { branches } from "@/lib/mockData";
@@ -35,6 +36,21 @@ export const Route = createFileRoute("/_authenticated/dev/work")({
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+type RecentKnowledge = {
+  kind: "note" | "document";
+  title: string;
+  at: string | null;
+  author: string | null;
+  doc_type: string | null;
+};
+
+type UnassignedTicket = {
+  ticket_key: string;
+  summary: string;
+  status: string;
+  issue_type: string;
+};
+
 type Ticket = { key: string; summary: string; status: string; created: string };
 
 function ageDays(created: string): number {
@@ -46,6 +62,30 @@ function MyWork() {
   const { project } = useMyProject(user.email);
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recent, setRecent] = useState<RecentKnowledge[] | null>(null);
+  const [unassigned, setUnassigned] = useState<UnassignedTicket[] | null>(null);
+
+  useEffect(() => {
+    if (!project) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [recentRes, unassignedRes] = await Promise.all([
+          fetch(
+            `${API_URL}/api/project/recent-knowledge?engagement_id=${encodeURIComponent(project.engagement_id)}&limit=6`,
+          ),
+          fetch(`${API_URL}/api/project/unassigned-tickets?limit=6`),
+        ]);
+        if (!cancelled && recentRes.ok) setRecent(await recentRes.json());
+        if (!cancelled && unassignedRes.ok) setUnassigned(await unassignedRes.json());
+      } catch {
+        // Both panels degrade to their own empty state — neither blocks the page.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [project]);
 
   useEffect(() => {
     if (!project) return;
@@ -133,9 +173,7 @@ function MyWork() {
           >
             {error && <p className="text-[13px] text-danger">{error}</p>}
             {!tickets && !error && (
-              <div className="flex items-center gap-2 py-2 text-[13px] text-mute">
-                <Loader2 className="size-3.5 animate-spin" /> Loading…
-              </div>
+              <SkeletonRows rows={4} className="py-2" />
             )}
             {tickets && tickets.length === 0 && (
               <p className="py-2 text-[13px] text-mute">No tickets assigned to you right now.</p>
@@ -164,6 +202,62 @@ function MyWork() {
                     >
                       {t.status}
                     </Chip>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </div>
+      </PageSection>
+
+      <PageSection label="Project knowledge">
+        <div className="grid grid-cols-2 gap-4">
+          <Panel
+            title="Recently added knowledge"
+            icon={<Sparkles className="size-3.5 text-highlight" />}
+          >
+            {!recent ? (
+              <SkeletonRows rows={3} />
+            ) : recent.length === 0 ? (
+              <p className="text-[13px] text-mute">
+                Nothing new has been captured for this project yet.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {recent.map((item) => (
+                  <li key={`${item.kind}-${item.title}`} className="flex items-start gap-2.5">
+                    <Chip tone={item.kind === "note" ? "brand" : "neutral"}>
+                      {item.kind === "note" ? "Note" : (item.doc_type ?? "Doc").replace(/_/g, " ")}
+                    </Chip>
+                    <div className="min-w-0 flex-grow">
+                      <p className="truncate text-[13px] text-ink">{item.title}</p>
+                      <p className="text-[11px] text-mute">
+                        {item.author}
+                        {item.at ? ` · ${new Date(item.at).toLocaleDateString()}` : ""}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          <Panel title="Unclaimed work" icon={<Inbox className="size-3.5 text-mute" />}>
+            {!unassigned ? (
+              <SkeletonRows rows={3} />
+            ) : unassigned.length === 0 ? (
+              <p className="text-[13px] text-mute">Every open ticket has an owner right now.</p>
+            ) : (
+              <ul className="flex flex-col gap-2.5">
+                {unassigned.map((t) => (
+                  <li key={t.ticket_key} className="flex items-start gap-2.5">
+                    <TicketKey>{t.ticket_key}</TicketKey>
+                    <div className="min-w-0 flex-grow">
+                      <p className="truncate text-[13px] text-ink">{t.summary}</p>
+                      <p className="text-[11px] text-mute">
+                        {t.issue_type} · {t.status}
+                      </p>
+                    </div>
                   </li>
                 ))}
               </ul>

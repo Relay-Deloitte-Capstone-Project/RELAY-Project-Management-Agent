@@ -1,3 +1,10 @@
+// The handover-kit page (export-kit-final branch) looks up a recipient here
+// by name before falling back to a slug it derives itself — that fallback
+// already runs whenever no match is found, so an empty list changes nothing
+// about its behavior. Left empty rather than guessing at a real team roster
+// that branch never defined; fill in real entries if a lookup is intended.
+export const teamMembers: { id: string; name: string }[] = [];
+
 export const project = {
   name: "Apache Kafka",
   engagement: "Q3 engagement",

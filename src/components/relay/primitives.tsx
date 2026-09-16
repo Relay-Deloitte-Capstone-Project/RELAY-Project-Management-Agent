@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function SectionLabel({ children, className }: { children: ReactNode; className?: string }) {
@@ -6,18 +7,20 @@ export function SectionLabel({ children, className }: { children: ReactNode; cla
 }
 
 export function PageSection({
+  id,
   label,
   subtitle,
   children,
   className,
 }: {
+  id?: string;
   label?: string;
   subtitle?: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <section className={cn("mb-6", className)}>
+    <section id={id} className={cn("mb-6", className)}>
       {label ? <SectionLabel>{label}</SectionLabel> : null}
       {subtitle ? <p className="mb-3 text-[13px] leading-relaxed text-mute">{subtitle}</p> : null}
       {children}
@@ -41,7 +44,7 @@ export function Panel({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-border bg-card p-4 transition-colors duration-150 hover:border-brand",
+        "rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)] transition-colors duration-150 hover:border-border-strong",
         className,
       )}
     >
@@ -117,17 +120,34 @@ export function MetricCard({
   value,
   tone = "neutral",
   hint,
+  emphasis = false,
 }: {
   label: string;
   value: ReactNode;
   tone?: Tone;
   hint?: string;
+  /* Inverts the card to the ink surface, marking the single headline figure on
+     a screen. Use at most once per view or it stops meaning anything. */
+  emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-lg bg-surface-sunken px-4 py-3">
-      <div className="section-label">{label}</div>
-      <div className={cn("mt-1 text-[28px] font-bold", toneText[tone])}>{value}</div>
-      {hint ? <div className="mt-0.5 text-[11px] text-mute">{hint}</div> : null}
+    <div className={cn("rounded-xl px-4 py-3.5", emphasis ? "bg-brand" : "bg-surface-sunken")}>
+      <div className={cn("section-label", emphasis && "!text-brand-foreground/70")}>{label}</div>
+      <div
+        className={cn(
+          "mt-1 text-[28px] font-semibold tracking-tight tabular-nums",
+          emphasis ? "text-brand-foreground" : tone === "neutral" ? "text-ink" : toneText[tone],
+        )}
+      >
+        {value}
+      </div>
+      {hint ? (
+        <div
+          className={cn("mt-0.5 text-[11px]", emphasis ? "text-brand-foreground/70" : "text-mute")}
+        >
+          {hint}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -142,7 +162,7 @@ export function StatusDotCard({
   tone?: Tone;
 }) {
   return (
-    <div className="rounded-lg bg-surface-sunken px-4 py-3">
+    <div className="rounded-xl bg-surface-sunken px-4 py-3.5">
       <div className="section-label">{label}</div>
       <div className="mt-1.5 flex items-center gap-2">
         <span
@@ -291,4 +311,56 @@ export function Avatar({
 
 export function LegalNote({ children }: { children: ReactNode }) {
   return <p className="text-[11px] text-mute italic">{children}</p>;
+}
+
+/* Loading placeholders. These mirror the shape of the content that replaces
+   them, so a slow response reads as "arriving" rather than "stuck" — the same
+   wait feels considerably shorter than it does behind a spinner. */
+
+export function SkeletonText({ lines = 3, className }: { lines?: number; className?: string }) {
+  return (
+    <div className={cn("space-y-2", className)}>
+      {Array.from({ length: lines }).map((_, i) => (
+        <Skeleton key={i} className={cn("h-3", i === lines - 1 ? "w-3/5" : "w-full")} />
+      ))}
+    </div>
+  );
+}
+
+export function SkeletonRows({ rows = 4, className }: { rows?: number; className?: string }) {
+  return (
+    <div className={cn("space-y-2.5", className)}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <div className="flex-grow space-y-1.5">
+            <Skeleton className="h-3 w-1/3" />
+            <Skeleton className="h-2.5 w-2/3" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function SkeletonMetrics({ count = 4, className }: { count?: number; className?: string }) {
+  return (
+    <div className={cn("grid grid-cols-4 gap-3", className)}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="rounded-xl bg-surface-sunken px-4 py-3.5">
+          <Skeleton className="h-2.5 w-20" />
+          <Skeleton className="mt-2.5 h-7 w-12" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function SkeletonPanel({ lines = 4, className }: { lines?: number; className?: string }) {
+  return (
+    <div className={cn("rounded-2xl border border-border bg-card p-5", className)}>
+      <Skeleton className="mb-4 h-3 w-32" />
+      <SkeletonText lines={lines} />
+    </div>
+  );
 }
