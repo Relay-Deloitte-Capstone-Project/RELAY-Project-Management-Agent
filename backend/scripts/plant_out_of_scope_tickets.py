@@ -1,7 +1,7 @@
 """One-off script: plant 3 test tickets on KPD for the Scope Guardian demo.
 
-Per TASK_wire_mock_client.md Step 3 — KPD is being treated as the mock
-client board (Arclight Systems / "Continuity", per sow_mock_client.md).
+Per docs/plans/TASK_wire_mock_client.md Step 3 — KPD is being treated as the
+mock client board (Arclight Systems / "Continuity", per fixtures/sow_mock_client.md).
 Creates exactly 3 new backlog issues (no epic, priority Medium) and adds a
 comment on each explaining why it exists. Does not touch any existing issue.
 

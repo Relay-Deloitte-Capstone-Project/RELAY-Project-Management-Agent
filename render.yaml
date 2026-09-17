@@ -1,6 +1,6 @@
 # Render blueprint — deploys the FastAPI backend as a Docker web service.
 # Dashboard: New → Blueprint → point at this repo. Secret env vars (sync: false)
-# are pasted into the Render dashboard after the service is created — see DEPLOY.md.
+# are pasted into the Render dashboard after the service is created — see docs/DEPLOY.md.
 # autoDeploy: every push to the connected branch (main) rebuilds and redeploys.
 services:
   - type: web

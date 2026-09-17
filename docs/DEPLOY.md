@@ -13,8 +13,8 @@ pgvector) shared by the backend corpus and the Prisma auth tables.
 
 ## Step 0 — Rotate the leaked GitHub token (do this first)
 
-A GitHub personal access token was committed to this repo (in
-`project-memory-explore/`). The files have been scrubbed, but the token must be
+A GitHub personal access token was committed to this repo (in the
+`project-memory-explore/` prototype folder, since removed). The token must be
 considered compromised:
 
 1. Go to <https://github.com/settings/tokens> and **revoke/delete** the token.
@@ -208,14 +208,14 @@ export $(grep -v '^#' .env.local | xargs)
 psql "$DATABASE_URL"          # or: edit rows in Neon's dashboard SQL Editor
 ```
 
-This includes ingesting new Jira/GitHub data (`backend/scripts/`, `jira_toolkit.py`)
+This includes ingesting new Jira/GitHub data (`backend/scripts/`)
 — point the script at the Neon URL and the deployed app answers from the new
 chunks immediately.
 
 ### Live sync with Jira + GitHub (automatic)
 
 The backend keeps the database in step with live Jira and GitHub on its own —
-see `CHAT_DB_SYNC_PLAN.md` for the full design. A background task inside the
+see `docs/plans/CHAT_DB_SYNC_PLAN.md` for the full design. A background task inside the
 Render web service (`backend/api/sync.py`, started in `main.py`'s lifespan)
 runs every `SYNC_INTERVAL_MINUTES` (default 5):
 

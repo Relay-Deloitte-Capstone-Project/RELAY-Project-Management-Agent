@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   // Postgres everywhere: Neon (free tier) in production, any local Postgres
-  // for dev. Set DATABASE_URL accordingly — see DEPLOY.md for the hosted setup.
+  // for dev. Set DATABASE_URL accordingly — see docs/DEPLOY.md for the hosted setup.
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
