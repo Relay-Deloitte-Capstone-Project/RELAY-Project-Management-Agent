@@ -43,13 +43,11 @@ backend/.env
 backend/.venv/
 backend/reports/
 backend/storage/
-project-memory-explore/github_token.txt
 .neon
 
 
-# Local conda env / alt lockfiles
+# Local conda env
 relay_env/
-pnpm-lock.yaml
 
 __pycache__/
 kimi-export-session_*.md

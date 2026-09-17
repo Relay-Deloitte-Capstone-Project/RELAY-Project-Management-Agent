@@ -1,5 +1,8 @@
--- Scope Guardian persistence tables — populated by scope-guardian's Python
--- pipeline (run_scope_guardian_real.py) and consumed by backend/api/scope.py.
+-- Scope Guardian persistence tables — consumed (read-only) by
+-- backend/api/scope.py. Populated by a one-off classification script
+-- (run_scope_guardian_real.py) that has done its job and been removed from
+-- the repo; retrieve it from git history (see the "Add Scope Guardian
+-- classification pipeline" commit) if the classification ever needs a rerun.
 --
 -- This was originally authored under
 -- prisma/migrations/20260914000000_add_scope_guardian_tables/migration.sql,
