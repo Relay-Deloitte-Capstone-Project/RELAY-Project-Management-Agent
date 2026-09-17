@@ -27,15 +27,21 @@ from pathlib import Path
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from pypdf import PdfReader
 from starlette.concurrency import run_in_threadpool
 
 from api import llm
+from api.auth import VerifiedUser, require_role
 from api.query import embed, ready_model, to_pgvector
 
 router = APIRouter()
+
+# SOW upload/review is admin-only, same as the setup wizard it's part of —
+# it had no auth check at all before, so anyone who could reach the URL
+# could upload or delete a client's contract document.
+_Admin = Depends(require_role("ADMIN"))
 
 DEFAULT_ENGAGEMENT_ID = os.environ.get("RELAY_ENGAGEMENT_ID", "proj-001")
 
@@ -136,6 +142,7 @@ async def upload_sow(
     file: UploadFile = File(...),
     engagement_id: str = Form(DEFAULT_ENGAGEMENT_ID),
     uploaded_by: Optional[str] = Form(None),
+    user: VerifiedUser = _Admin,
 ):
     # Browsers are inconsistent about the content-type they report for a
     # PDF (some send application/octet-stream, some send nothing at all
@@ -327,7 +334,7 @@ async def _parse_and_index(pool, embedding_model, document_id, engagement_id, st
 
 @router.get("/api/admin/sow")
 async def list_sow_documents(
-    engagement_id: str, request: Request, include_deliverables: bool = False
+    engagement_id: str, request: Request, include_deliverables: bool = False, user: VerifiedUser = _Admin
 ):
     """Lists every SOW document uploaded for a project. With
     include_deliverables=true, each document carries its own deliverables
@@ -368,7 +375,7 @@ async def list_sow_documents(
 
 
 @router.get("/api/admin/sow/{document_id}")
-async def get_sow_document(document_id: str, request: Request):
+async def get_sow_document(document_id: str, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     doc = await pool.fetchrow(
         """
@@ -397,7 +404,7 @@ async def get_sow_document(document_id: str, request: Request):
 
 
 @router.delete("/api/admin/sow/{document_id}")
-async def delete_sow_document(document_id: str, request: Request):
+async def delete_sow_document(document_id: str, request: Request, user: VerifiedUser = _Admin):
     """Removes a SOW document, its deliverables (FK cascade) and its chunks
     (no FK — public.chunks.source_doc_id is a plain text convention shared
     with Jira/GitHub rows, not a real foreign key, so this is deleted
@@ -426,7 +433,7 @@ class EditDeliverable(BaseModel):
 
 
 @router.patch("/api/admin/sow/deliverables/{deliverable_id}")
-async def edit_deliverable(deliverable_id: str, body: EditDeliverable, request: Request):
+async def edit_deliverable(deliverable_id: str, body: EditDeliverable, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     current = await pool.fetchrow(
         "SELECT name, acceptance_criteria FROM public.sow_deliverables WHERE id = $1",

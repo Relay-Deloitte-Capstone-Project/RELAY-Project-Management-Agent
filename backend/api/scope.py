@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from api import jira_client
+from api.auth import VerifiedUser, require_role
 
 router = APIRouter(prefix="/api/scope", tags=["scope"])
 
+# Scope Guardian is a manager-facing view (mgr.scope.tsx / mgr.epics.tsx) —
+# had no auth at all before.
+_Manager = Depends(require_role("ADMIN", "MANAGER"))
+
 
 @router.get("/deliverables")
-async def deliverables(request: Request):
+async def deliverables(request: Request, user: VerifiedUser = _Manager):
     async with request.app.state.pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
@@ -25,7 +30,7 @@ async def deliverables(request: Request):
 
 
 @router.get("/alerts")
-async def alerts(request: Request):
+async def alerts(request: Request, user: VerifiedUser = _Manager):
     async with request.app.state.pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
@@ -45,7 +50,7 @@ async def alerts(request: Request):
 
 
 @router.get("/tickets/{epic_key}")
-async def epic_tickets(epic_key: str, request: Request):
+async def epic_tickets(epic_key: str, request: Request, user: VerifiedUser = _Manager):
     async with request.app.state.pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT
@@ -66,7 +71,7 @@ async def epic_tickets(epic_key: str, request: Request):
 
 
 @router.get("/epics")
-async def epic_progress(request: Request):
+async def epic_progress(request: Request, user: VerifiedUser = _Manager):
     """Return Epic Progress using live Jira status and Scope Guardian compliance."""
     from api.jira_client import epic_issues
 
@@ -166,7 +171,7 @@ async def epic_progress(request: Request):
     return result
 
 @router.post("/epics/{epic_key}/summary")
-async def generate_epic_summary(epic_key: str, request: Request):
+async def generate_epic_summary(epic_key: str, request: Request, user: VerifiedUser = _Manager):
     """Generate an AI summary from the latest classified Jira state."""
     import os
     from groq import AsyncGroq

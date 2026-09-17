@@ -28,9 +28,10 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from api import jira_client
+from api.auth import VerifiedUser, require_user
 from api.scratchpad_triggers import DRAFT_TTL_DAYS
 
 router = APIRouter()
@@ -177,12 +178,15 @@ async def _all_issues(
     return [_normalize_live(i) for i in issues]
 
 
-@router.get("/api/project/summary")
-async def summary(
+async def _summary_impl(
     request: Request,
-    engagement_id: Optional[str] = Query(default=None),
-    requester_email: Optional[str] = Query(default=None),
-):
+    engagement_id: Optional[str] = None,
+    requester_email: Optional[str] = None,
+) -> dict:
+    """The actual /api/project/summary logic, factored out from the route
+    below so api/onboarding.py can call it directly (its own routes already
+    verify identity and staffing before reaching this point, so there's no
+    Depends() to satisfy here)."""
     issues = await _all_issues(request, engagement_id, requester_email)
     total = len(issues)
 
@@ -228,6 +232,15 @@ async def summary(
         "bug_rate": round(bugs / total * 100, 1) if total else 0,
         "domain_labels": dict(sorted(domain_labels.items(), key=lambda kv: -kv[1])[:8]),
     }
+
+
+@router.get("/api/project/summary")
+async def summary(
+    request: Request,
+    engagement_id: Optional[str] = Query(default=None),
+    user: VerifiedUser = Depends(require_user),
+):
+    return await _summary_impl(request, engagement_id, user["email"])
 
 
 def _bucket_counts(issues: list) -> dict:
@@ -346,16 +359,16 @@ async def _team_rows(
 async def team(
     request: Request,
     engagement_id: Optional[str] = Query(default=None),
-    requester_email: Optional[str] = Query(default=None),
+    user: VerifiedUser = Depends(require_user),
 ):
-    return await _team_rows(request, engagement_id, requester_email)
+    return await _team_rows(request, engagement_id, user["email"])
 
 
 @router.get("/api/project/team-continuity")
 async def team_continuity(
     request: Request,
     engagement_id: Optional[str] = Query(default=None),
-    requester_email: Optional[str] = Query(default=None),
+    user: VerifiedUser = Depends(require_user),
 ):
     """Standing per-person continuity state for the Team handover overview:
     real Jira load, real commit trail, real captured-knowledge counts, and —
@@ -377,8 +390,8 @@ async def team_continuity(
     pool = request.app.state.pool
     eid = engagement_id or LIVE_JIRA_ENGAGEMENT_ID
 
-    members = await _team_rows(request, engagement_id, requester_email)
-    issues = await _all_issues(request, engagement_id, requester_email)
+    members = await _team_rows(request, engagement_id, user["email"])
+    issues = await _all_issues(request, engagement_id, user["email"])
 
     staffing = await pool.fetch(
         "SELECT name, email, role FROM public.project_staffing WHERE engagement_id = $1",
@@ -468,6 +481,7 @@ async def member_trail(
     name: str = Query(...),
     engagement_id: Optional[str] = Query(default=None),
     limit: int = Query(default=15),
+    user: VerifiedUser = Depends(require_user),
 ):
     """One person's real recent commits and which tickets each references —
     the code trail behind their work state, for the Team handover profile.
@@ -481,6 +495,8 @@ async def member_trail(
     """
     pool = request.app.state.pool
     eid = engagement_id or LIVE_JIRA_ENGAGEMENT_ID
+    if engagement_id:
+        await _require_staffed(pool, user["email"], engagement_id)
     key = _person_key(name)
 
     rows = await pool.fetch(
@@ -554,9 +570,9 @@ async def member_trail(
 async def epics(
     request: Request,
     engagement_id: Optional[str] = Query(default=None),
-    requester_email: Optional[str] = Query(default=None),
+    user: VerifiedUser = Depends(require_user),
 ):
-    issues = await _all_issues(request, engagement_id, requester_email)
+    issues = await _all_issues(request, engagement_id, user["email"])
     epic_issues = [i for i in issues if i["type"] == "Epic"]
 
     children_by_epic: dict = {}
@@ -586,7 +602,7 @@ async def epics(
 
 
 @router.get("/api/project/sprint-history")
-async def sprint_history():
+async def sprint_history(user: VerifiedUser = Depends(require_user)):
     _require_configured()
     sprints = await jira_client.list_sprints()
 
@@ -626,9 +642,9 @@ async def tickets(
     assignee: Optional[str] = Query(default=None),
     epic: Optional[str] = Query(default=None),
     engagement_id: Optional[str] = Query(default=None),
-    requester_email: Optional[str] = Query(default=None),
+    user: VerifiedUser = Depends(require_user),
 ):
-    issues = await _all_issues(request, engagement_id, requester_email)
+    issues = await _all_issues(request, engagement_id, user["email"])
     if label:
         issues = [i for i in issues if label in i["labels"]]
     if assignee:
@@ -642,9 +658,9 @@ async def tickets(
 async def risk_signals(
     request: Request,
     engagement_id: Optional[str] = Query(default=None),
-    requester_email: Optional[str] = Query(default=None),
+    user: VerifiedUser = Depends(require_user),
 ):
-    issues = await _all_issues(request, engagement_id, requester_email)
+    issues = await _all_issues(request, engagement_id, user["email"])
 
     label_counts: Counter = Counter()
     for i in issues:
@@ -745,7 +761,7 @@ async def risk_signals(
 
 
 @router.get("/api/project/activity")
-async def activity(request: Request):
+async def activity(request: Request, user: VerifiedUser = Depends(require_user)):
     pool = request.app.state.pool
     questions_row = await pool.fetchrow("SELECT COUNT(*) AS n FROM zone3.chat_messages WHERE role = 'user'")
     notes_row = await pool.fetchrow("SELECT COUNT(*) AS n FROM zone3.scratchpad_notes")
@@ -777,7 +793,7 @@ async def activity(request: Request):
 
 
 @router.get("/api/project/team-activity")
-async def team_activity(request: Request):
+async def team_activity(request: Request, user: VerifiedUser = Depends(require_user)):
     """Per-person Ask Project usage, real — joined by the app's own Prisma
     user id (zone3.chat_sessions.user_id). The frontend joins this to a
     person by id, separately from the Jira-name join /api/project/team uses.
@@ -817,7 +833,7 @@ async def team_activity(request: Request):
 
 
 @router.get("/api/project/services")
-async def services(request: Request):
+async def services(request: Request, user: VerifiedUser = Depends(require_user)):
     db_ok = False
     try:
         await request.app.state.pool.fetchval("SELECT 1")
@@ -840,10 +856,16 @@ async def services(request: Request):
 
 
 @router.get("/api/project/recent-knowledge")
-async def recent_knowledge(engagement_id: str, request: Request, limit: int = 8):
+async def recent_knowledge(
+    engagement_id: str,
+    request: Request,
+    limit: int = 8,
+    user: VerifiedUser = Depends(require_user),
+):
     """What has been added to the project's memory lately — approved scratchpad
     notes and confirmed PM documents, newest first. Gives a developer a way to
     see what changed since they last looked, which nothing else surfaces."""
+    await _require_staffed(request.app.state.pool, user["email"], engagement_id)
     async with request.app.state.pool.acquire() as conn:
         notes = await conn.fetch(
             """
@@ -891,7 +913,7 @@ async def recent_knowledge(engagement_id: str, request: Request, limit: int = 8)
 
 
 @router.get("/api/project/unassigned-tickets")
-async def unassigned_tickets(request: Request, limit: int = 10):
+async def unassigned_tickets(request: Request, limit: int = 10, user: VerifiedUser = Depends(require_user)):
     """Open Jira tickets with nobody on them. Deliberately not tied to any
     person — it's a gap in the board, not a statement about anyone."""
     async with request.app.state.pool.acquire() as conn:
@@ -909,7 +931,7 @@ async def unassigned_tickets(request: Request, limit: int = 10):
 
 
 @router.get("/api/project/config")
-async def config():
+async def config(user: VerifiedUser = Depends(require_user)):
     return {
         "jira_site": jira_client.SITE if jira_client.configured() else None,
         "llm_provider": os.environ.get("LLM_PROVIDER"),

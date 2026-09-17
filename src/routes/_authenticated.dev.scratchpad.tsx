@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { relayFetch } from "@/lib/relayApi";
 
 // Same FastAPI backend the Ask Project page talks to (backend/main.py).
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
@@ -78,7 +79,7 @@ type NoteVersion = {
 };
 
 async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await relayFetch(`${API_URL}${path}`, {
     headers: { "Content-Type": "application/json" },
     ...init,
   });

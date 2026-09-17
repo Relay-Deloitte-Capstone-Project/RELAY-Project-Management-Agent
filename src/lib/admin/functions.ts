@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { signApiToken } from "@/lib/auth/session.server";
 import { isRole } from "@/lib/auth/types";
 
 const ACTIVE_WINDOW_MS = 1000 * 60 * 60 * 24 * 30; // a session created in the last 30 days reads as "Active"
@@ -31,9 +32,26 @@ const API_URL = process.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
 type MyProjectRow = { name: string };
 
-async function projectNamesFor(email: string): Promise<string> {
+// This runs server-side, inside listAppUsers's own handler — never through
+// relayFetch/getAskApiToken, which mint and cache a token per BROWSER tab.
+// A Node server process handles many different admins' requests over its
+// lifetime; sharing that browser-oriented cache here would risk one admin's
+// request reusing a token minted for a completely different admin. The
+// caller already has a verified identity (context.user, from this same
+// file's own authMiddleware) — mint directly from that instead, once per
+// listAppUsers call, and pass it in.
+//
+// Also deliberately calls /api/admin/user-projects, not /api/me/projects:
+// that endpoint now only ever returns the CALLER's own projects (a
+// necessary fix — it used to let anyone look up anyone else's projects by
+// email), which broke this specific admin-only "look up an arbitrary
+// other user's projects" case. /api/admin/user-projects is the ADMIN-gated
+// replacement for exactly that.
+async function projectNamesFor(email: string, apiToken: string): Promise<string> {
   try {
-    const res = await fetch(`${API_URL}/api/me/projects?email=${encodeURIComponent(email)}`);
+    const res = await fetch(`${API_URL}/api/admin/user-projects?email=${encodeURIComponent(email)}`, {
+      headers: { Authorization: `Bearer ${apiToken}` },
+    });
     if (!res.ok) return "—";
     const rows: MyProjectRow[] = await res.json();
     if (rows.length === 0) return "—";
@@ -78,7 +96,8 @@ export const listAppUsers = createServerFn({ method: "GET" })
     });
 
     const now = Date.now();
-    const projectNames = await Promise.all(users.map((u) => projectNamesFor(u.email)));
+    const apiToken = signApiToken(context.user);
+    const projectNames = await Promise.all(users.map((u) => projectNamesFor(u.email, apiToken)));
 
     return users.map((u, i) => {
       const lastSession = u.sessions[0];

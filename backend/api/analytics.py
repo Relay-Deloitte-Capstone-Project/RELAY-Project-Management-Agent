@@ -16,11 +16,15 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from api import jira_client
+from api.auth import VerifiedUser, require_role
 
 router = APIRouter()
+
+# Manager dashboard only — had no auth at all before.
+_Manager = Depends(require_role("ADMIN", "MANAGER"))
 
 DONE_CATEGORY = "Done"
 
@@ -84,7 +88,7 @@ async def _actual_daily_series(issues: list, start: datetime, end: datetime) -> 
 
 
 @router.get("/api/analytics/sprints")
-async def sprints():
+async def sprints(user: VerifiedUser = _Manager):
     if not jira_client.configured():
         raise HTTPException(status_code=503, detail="Jira is not configured on the backend")
 
@@ -96,7 +100,7 @@ async def sprints():
 
 
 @router.get("/api/analytics/burndown")
-async def burndown(sprint_id: Optional[int] = Query(default=None)):
+async def burndown(sprint_id: Optional[int] = Query(default=None), user: VerifiedUser = _Manager):
     if not jira_client.configured():
         raise HTTPException(status_code=503, detail="Jira is not configured on the backend")
 
@@ -150,7 +154,7 @@ async def burndown(sprint_id: Optional[int] = Query(default=None)):
 
 
 @router.get("/api/analytics/employee-breakdown")
-async def employee_breakdown(sprint_id: Optional[int] = Query(default=None)):
+async def employee_breakdown(sprint_id: Optional[int] = Query(default=None), user: VerifiedUser = _Manager):
     if not jira_client.configured():
         raise HTTPException(status_code=503, detail="Jira is not configured on the backend")
 
@@ -187,7 +191,7 @@ async def employee_breakdown(sprint_id: Optional[int] = Query(default=None)):
 
 
 @router.get("/api/analytics/workload")
-async def workload(request: Request):
+async def workload(request: Request, user: VerifiedUser = _Manager):
     """Current open work per person, across the whole board rather than one
     sprint — the capacity question a manager asks when deciding where the next
     ticket goes.

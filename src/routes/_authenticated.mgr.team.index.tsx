@@ -12,6 +12,7 @@ import {
 } from "@/components/relay/primitives";
 import { listTeamRoster } from "@/lib/team/functions";
 import { cn } from "@/lib/utils";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/mgr/team/")({
   head: () => ({
@@ -98,9 +99,7 @@ function TeamOverview() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/analytics/workload`);
-        if (!res.ok) return;
-        const json: Workload = await res.json();
+        const json = await cachedJson<Workload>(`${API_URL}/api/analytics/workload`);
         if (!cancelled) setWorkload(json);
       } catch {
         // Panel keeps its skeleton; the rest of the page is unaffected.
@@ -115,14 +114,24 @@ function TeamOverview() {
     let cancelled = false;
     (async () => {
       try {
-        const [res, activityRes, roster] = await Promise.all([
-          fetch(`${API_URL}/api/project/team-continuity`),
-          fetch(`${API_URL}/api/project/team-activity`),
+        const [continuitySettled, activitySettled, roster] = await Promise.all([
+          cachedJson<ContinuityRow[]>(`${API_URL}/api/project/team-continuity`).then(
+            (value) => ({ ok: true as const, value }),
+            (reason: unknown) => ({ ok: false as const, reason }),
+          ),
+          cachedJson<ActivityEntry[]>(`${API_URL}/api/project/team-activity`).then(
+            (value) => ({ ok: true as const, value }),
+            () => ({ ok: false as const, reason: undefined }),
+          ),
           listTeamRoster(),
         ]);
-        if (!res.ok) throw new Error(`Couldn't load the team (${res.status})`);
-        const rows: ContinuityRow[] = await res.json();
-        const activity: ActivityEntry[] = activityRes.ok ? await activityRes.json() : [];
+        if (!continuitySettled.ok) {
+          throw continuitySettled.reason instanceof Error
+            ? continuitySettled.reason
+            : new Error("Couldn't load the team");
+        }
+        const rows = continuitySettled.value;
+        const activity: ActivityEntry[] = activitySettled.ok ? activitySettled.value : [];
         const rosterByName = new Map((roster as RosterEntry[]).map((r) => [r.name, r]));
         const activityById = new Map(activity.map((a) => [a.user_id, a]));
         if (!cancelled) {

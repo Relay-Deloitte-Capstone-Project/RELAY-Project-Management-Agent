@@ -30,7 +30,9 @@ optionally by api/query.py.
 """
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from api.auth import VerifiedUser, require_user
 
 router = APIRouter()
 
@@ -55,10 +57,14 @@ async def require_access(pool: asyncpg.Pool, email: str, engagement_id: str):
 
 
 @router.get("/api/my-projects")
-async def my_projects(email: str, request: Request):
+async def my_projects(request: Request, user: VerifiedUser = Depends(require_user)):
     """The projects this user may read — drives the Ask Project project
     picker, which replaces the old hardcoded proj-001. Empty list means
-    "not assigned anywhere yet", which the UI renders as an empty state."""
+    "not assigned anywhere yet", which the UI renders as an empty state.
+
+    Scoped to the verified caller's own email (from the JWT), never a
+    client-supplied one — this used to be a plain `email` query param, which
+    let anyone enumerate any other email's project list."""
     pool: asyncpg.Pool = request.app.state.pool
     rows = await pool.fetch(
         """
@@ -68,6 +74,6 @@ async def my_projects(email: str, request: Request):
         WHERE lower(s.email) = lower($1) AND p.status != 'archived'
         ORDER BY p.created_at DESC
         """,
-        email,
+        user["email"],
     )
     return [dict(r) for r in rows]

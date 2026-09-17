@@ -7,6 +7,7 @@
 // Portal, Akshar only sees Acme" actually true instead of just true in the
 // UI's copy.
 import { useEffect, useState } from "react";
+import { cachedJson } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -35,12 +36,8 @@ export function useMyProject(email: string): {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`${API_URL}/api/me/projects?email=${encodeURIComponent(email)}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load your project (${res.status})`);
-        return res.json();
-      })
-      .then((rows: MyProject[]) => {
+    cachedJson<MyProject[]>(`${API_URL}/api/me/projects?email=${encodeURIComponent(email)}`)
+      .then((rows) => {
         if (!cancelled) setProject(rows[0] ?? null);
       })
       .catch((err) => {

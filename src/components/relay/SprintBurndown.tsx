@@ -9,6 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import { Panel } from "@/components/relay/primitives";
+import { cachedJson } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -40,9 +41,7 @@ export function SprintBurndown({ sprintId }: { sprintId?: number | undefined }) 
       setError(null);
       try {
         const query = sprintId !== undefined ? `?sprint_id=${sprintId}` : "";
-        const res = await fetch(`${API_URL}/api/analytics/burndown${query}`);
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
-        const json: BurndownResponse = await res.json();
+        const json = await cachedJson<BurndownResponse>(`${API_URL}/api/analytics/burndown${query}`);
         if (!cancelled) {
           setData(json);
           setZoomWeek(null);

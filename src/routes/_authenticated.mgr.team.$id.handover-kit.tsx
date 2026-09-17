@@ -3,6 +3,7 @@ import { Ban, ClipboardList, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { GhostButton, PageSection, Panel } from "@/components/relay/primitives";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/mgr/team/$id/handover-kit")({
   head: () => ({
@@ -48,9 +49,7 @@ function HandoverKitPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/project/team`);
-        if (!res.ok) return;
-        const json: JiraMember[] = await res.json();
+        const json = await cachedJson<JiraMember[]>(`${API_URL}/api/project/team`);
         if (!cancelled) setTeam(json);
       } catch {
         // Header falls back to a generic title below.

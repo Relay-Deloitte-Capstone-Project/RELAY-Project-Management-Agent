@@ -26,6 +26,7 @@ import re
 import asyncpg
 
 from api import github_client, jira_client, llm
+from api.query import _commit_author_allowlist, filter_commit_authorship
 
 logger = logging.getLogger(__name__)
 
@@ -611,7 +612,7 @@ async def handle_sprint(pool, question, engagement_id, sprint_num, llm_providers
     }
 
 
-async def handle_recent(pool, question, engagement_id, payload, llm_providers, ctx):
+async def handle_recent(pool, question, engagement_id, payload, llm_providers, ctx, requester_name=None):
     person, status = payload
     # "bugs"/"fixes" restrict to bug-type tickets; a plain "tickets"/"issues"
     # question (or a status filter like "in progress") means any issue type.
@@ -633,13 +634,35 @@ async def handle_recent(pool, question, engagement_id, payload, llm_providers, c
                 RECENT_TICKETS_SQL, engagement_id, 8, person, status, not bugs_only
             )
         ]
+    commits_blocked = False
     if wants_commits:
-        results += [
+        commit_rows = [
             dict(r)
             for r in await pool.fetch(RECENT_COMMITS_SCOPED_SQL, engagement_id, 8, person)
         ]
+        # Guardrail: whatever the content filter above matched (a named
+        # person, or nobody — which would otherwise mean "everyone's"),
+        # only commits the requester actually authored ever reach the
+        # model. A "commits by <someone else>" question doesn't error, it
+        # just comes back with nothing to show, same shape as any other
+        # empty result.
+        allowlist = await _commit_author_allowlist(pool, engagement_id, requester_name)
+        allowed_commits = filter_commit_authorship(commit_rows, allowlist)
+        commits_blocked = bool(commit_rows) and not allowed_commits
+        results += allowed_commits
 
     if not results:
+        if commits_blocked:
+            return {
+                "answer": (
+                    "Those commits belong to a teammate, not you — I can only answer "
+                    "about your own GitHub commits. Ask about the ticket instead, or "
+                    "ask them directly."
+                ),
+                "sources": [],
+                "abstained": True,
+                "provider": None,
+            }
         scope = ""
         if person and status:
             scope = " for {} with status {}".format(person, status)
@@ -710,7 +733,18 @@ async def handle_overview(pool, question, engagement_id, llm_providers, ctx):
     }
 
 
-async def handle_code(pool, question, engagement_id, payload, llm_providers, ctx):
+CODE_ACCESS_DENIED = {
+    "answer": (
+        "That commit belongs to a teammate, not you — I can only show your own "
+        "commit diffs. Ask about the ticket instead, or ask them directly."
+    ),
+    "sources": [],
+    "abstained": True,
+    "provider": None,
+}
+
+
+async def handle_code(pool, question, engagement_id, payload, llm_providers, ctx, requester_name=None):
     if not github_client.configured():
         return None  # no token — fall back to RAG, which can still describe
 
@@ -734,12 +768,22 @@ async def handle_code(pool, question, engagement_id, payload, llm_providers, ctx
     if not repo:
         return None
 
+    # Guardrail, checked before any diff content is fetched into the prompt.
+    # A locally-known chunk gives its author straight from metadata; a raw
+    # SHA with no local record has no author until fetched, so that case is
+    # re-checked again below once the live commit itself names its author —
+    # a diff is never composed or returned without an author to compare.
+    allowlist = await _commit_author_allowlist(pool, engagement_id, requester_name)
+    if chunk and _meta(chunk).get("author") not in allowlist:
+        return CODE_ACCESS_DENIED
+
     commit = await github_client.get_commit(repo, sha)
     sha_short = _meta(chunk or {}).get("sha_short") or sha[:7]
     if commit is None:
         # Live fetch failed (bad/expired token, repo moved, API down). If we
         # at least know the commit from zone1, answer from that record with a
         # clear caveat instead of falling through to a generic "no info" RAG.
+        # (Authorship was already checked above for this branch.)
         if not chunk:
             return None
         logger.warning("live diff fetch failed for %s@%s — answering from chunk", repo, sha)
@@ -756,6 +800,12 @@ async def handle_code(pool, question, engagement_id, payload, llm_providers, ctx
             "abstained": False,
             "provider": provider,
         }
+
+    # No local chunk (kind == "sha" naming a commit we never ingested) means
+    # the check above never ran — the live API response is the only source
+    # of truth for who authored it, so it's checked here instead.
+    if not chunk and commit.get("author") not in allowlist:
+        return CODE_ACCESS_DENIED
 
     prompt = CODE_PROMPT.format(
         question=question,
@@ -924,11 +974,15 @@ async def maybe_handle(
     if name == "sprint":
         return await handle_sprint(pool, question, engagement_id, payload, llm_providers, ctx)
     if name == "recent":
-        return await handle_recent(pool, question, engagement_id, payload, llm_providers, ctx)
+        return await handle_recent(
+            pool, question, engagement_id, payload, llm_providers, ctx, user_name
+        )
     if name == "ticket":
         return await handle_ticket(pool, question, engagement_id, payload, llm_providers, ctx)
     if name == "overview":
         return await handle_overview(pool, question, engagement_id, llm_providers, ctx)
     if name == "code":
-        return await handle_code(pool, question, engagement_id, payload, llm_providers, ctx)
+        return await handle_code(
+            pool, question, engagement_id, payload, llm_providers, ctx, user_name
+        )
     return None

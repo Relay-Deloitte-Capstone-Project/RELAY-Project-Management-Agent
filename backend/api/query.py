@@ -21,6 +21,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api import llm, report
 from api.access import require_access
+from api.auth import try_verify_user
 
 router = APIRouter()
 
@@ -266,6 +267,69 @@ def extract_summarize_ticket(question: str):
     return m.group(1) if m else None
 
 
+def _normalize_person(name: Optional[str]) -> str:
+    """Collapse the different spellings the same person's identity shows up
+    under across Jira and GitHub — "Agrim_Gairola" (commit author) vs "Agrim
+    Gairola" (project_staffing), or a GitHub username with a numeric suffix
+    like "Anya-Gupta-05" vs "Anya Gupta". Same normalization idea as
+    api/project.py's _person_key, duplicated (not imported) since this is a
+    retrieval-safety check query.py must own outright — plus it goes one
+    step further and drops a trailing all-numeric token, which _person_key
+    doesn't need to since it never has to reconcile GitHub-username-style
+    author strings the way this commit-authorship check does.
+    """
+    if not name:
+        return ""
+    tokens = name.replace("_", " ").replace("-", " ").strip().lower().split()
+    if tokens and tokens[-1].isdigit():
+        tokens = tokens[:-1]
+    return " ".join(tokens)
+
+
+async def _commit_author_allowlist(pool, engagement_id: str, requester_name: Optional[str]) -> set:
+    """Every raw `metadata->>'author'` string on this engagement's commit
+    chunks that normalizes to the same person as the requester. An empty or
+    unresolved requester name yields an empty set — fail closed, not open:
+    a commit wrongly hidden from its own author is a minor annoyance: a
+    commit wrongly shown to someone else is the actual harm this guards
+    against, so an ambiguous match must never resolve to "allow"."""
+    key = _normalize_person(requester_name)
+    if not key:
+        return set()
+    rows = await pool.fetch(
+        "SELECT DISTINCT metadata->>'author' AS author FROM public.chunks "
+        "WHERE engagement_id = $1 AND source_type = 'github_commit' "
+        "AND metadata->>'author' IS NOT NULL",
+        engagement_id,
+    )
+    return {r["author"] for r in rows if _normalize_person(r["author"]) == key}
+
+
+def _commit_meta(r: dict) -> dict:
+    meta = r.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except Exception:
+            meta = {}
+    return meta
+
+
+def filter_commit_authorship(results: list, allowlist: set) -> list:
+    """Drop any github_commit chunk not authored by the requester, before
+    the prompt is built — not just before the response is returned. The
+    model must never see another developer's commit content in the first
+    place; telling it not to repeat something it already read is not a
+    guardrail, it's a request. Tickets, PRs, and every other source type
+    pass through unchanged — this is scoped to commits only, per the
+    security review that asked for it."""
+    return [
+        r
+        for r in results
+        if r["source_type"] != "github_commit" or _commit_meta(r).get("author") in allowlist
+    ]
+
+
 def _source_dict(r: dict) -> dict:
     return {
         "source_doc_id": r["source_doc_id"],
@@ -294,6 +358,14 @@ async def run_query(
     `history` is the session's recent messages ([{role, content}, ...]) for
     conversational context — api/sessions.py passes it; POST /api/query
     leaves it empty.
+
+    `user_name` MUST be the server-verified display name from api.auth's
+    decoded bearer token, never a client-supplied string — it now doubles as
+    the identity the GitHub-commit authorship guardrail (below) checks
+    retrieved commit chunks against, on top of its original job of resolving
+    "my tickets"-style first-person questions in api/intents.py. A commit
+    chunk not authored by this person is dropped before the prompt is ever
+    built, regardless of how relevant retrieval judged it.
 
     Returns the same shape POST /api/query responds with (answer, sources,
     abstained, provider, timing_seconds) — callers that also want to persist
@@ -458,6 +530,39 @@ async def run_query(
         if (r.get("score") is not None and r["score"] >= THRESHOLD) or r["id"] in strong_keyword_ids
     ][:TOP_K]
 
+    # Guardrail — a developer can ask about their own GitHub commits but not
+    # anyone else's; tickets/PRs/docs stay team-visible as before. Only pay
+    # for the allowlist lookup when a commit chunk actually made the cut.
+    if any(r["source_type"] == "github_commit" for r in results):
+        t0 = time.perf_counter()
+        allowlist = await _commit_author_allowlist(pool, engagement_id, user_name)
+        results = filter_commit_authorship(results, allowlist)
+        timings["authorship_filter"] = time.perf_counter() - t0
+
+        if not results:
+            timings["total"] = time.perf_counter() - t_start
+            answer = (
+                "The most relevant records for that were GitHub commits authored by "
+                "someone else — I can only answer about your own commits, not a "
+                "teammate's. Ask about a ticket instead, or ask them directly."
+            )
+            report.write_report(
+                question=question,
+                engagement_id=engagement_id,
+                abstained=True,
+                top_score=top_score,
+                provider=None,
+                answer=answer,
+                sources=[],
+                timings=timings,
+            )
+            return {
+                "answer": answer,
+                "sources": [],
+                "abstained": True,
+                "timing_seconds": round(timings["total"], 3),
+            }
+
     # Step 4 — cited answer from the retrieved context only.
     history_block = ""
     if history:
@@ -511,11 +616,11 @@ async def run_query(
 class QueryRequest(BaseModel):
     question: str
     engagement_id: str = DEFAULT_ENGAGEMENT_ID
-    # Optional so internal callers (smoke tests, eval) without a user context
-    # keep working; the user-facing chat path (api/sessions.py) always
-    # enforces membership itself, on every message.
+    # No longer used for access control (see the /api/query handler below) —
+    # a client-supplied email/user_id can't be trusted for authorization.
+    # Kept optional, accepted-but-ignored for backward compatibility with any
+    # existing caller still sending them.
     user_id: Optional[str] = None
-    # Access is checked by email against public.project_staffing (api/access.py)
     email: Optional[str] = None
 
 
@@ -526,8 +631,21 @@ async def query(req: QueryRequest, request: Request):
         raise HTTPException(status_code=400, detail="Question cannot be empty")
 
     pool = request.app.state.pool
-    if req.email is not None:
-        await require_access(pool, req.email, req.engagement_id)
+
+    # Verified identity (if a bearer token was sent) feeds both the staffing
+    # check below and the GitHub-commit authorship guardrail in run_query —
+    # never the client-supplied req.email/req.user_id fields, which used to
+    # gate this check (`if req.email is not None: ...`) despite being plain
+    # request-body strings: omitting email skipped the check outright, and
+    # supplying any guessed/known staffed email passed it trivially. A real
+    # bearer token always gets its membership checked now; no token at all
+    # (internal scripts/eval, which have no login context) keeps the
+    # existing behavior of skipping this specific check — same accepted
+    # trade-off the commit-authorship guardrail below already makes, which
+    # is why it fails closed on a missing identity instead of open.
+    verified = try_verify_user(request)
+    if verified is not None:
+        await require_access(pool, verified["email"], req.engagement_id)
 
     return await run_query(
         pool=pool,
@@ -535,4 +653,5 @@ async def query(req: QueryRequest, request: Request):
         llm_providers=request.app.state.llm_providers,
         question=question,
         engagement_id=req.engagement_id,
+        user_name=verified["name"] if verified else None,
     )

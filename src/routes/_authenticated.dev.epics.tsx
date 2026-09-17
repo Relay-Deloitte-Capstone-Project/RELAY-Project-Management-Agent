@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { Chip, GhostButton, PageSection, Panel, ProgressRow } from "@/components/relay/primitives";
 import { useMyProject } from "@/lib/admin/useMyProject";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/dev/epics")({
   head: () => ({
@@ -48,9 +49,7 @@ function Epics() {
           engagement_id: project.engagement_id,
           requester_email: user.email,
         });
-        const res = await fetch(`${API_URL}/api/project/epics?${params}`);
-        if (!res.ok) throw new Error("Request failed");
-        const json: Epic[] = await res.json();
+        const json = await cachedJson<Epic[]>(`${API_URL}/api/project/epics?${params}`);
         if (!cancelled) setEpics(json);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load epics.");

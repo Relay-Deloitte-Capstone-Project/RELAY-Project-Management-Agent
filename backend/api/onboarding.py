@@ -26,18 +26,20 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api import github_client, jira_client
 from api import llm as llm_module
+from api.access import can_access
+from api.auth import VerifiedUser, require_user
 from api.project import (
     HIDDEN_ROSTER_ROLES,
     LIVE_JIRA_ENGAGEMENT_ID,
     _all_issues,
     _person_key,
 )
-from api.project import summary as project_summary
+from api.project import _summary_impl as project_summary
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -50,16 +52,28 @@ DEFAULT_TEAM_NORMS = (
 )
 
 
+async def _require_manager_staffed(pool, user: VerifiedUser, engagement_id: str) -> None:
+    """Onboarding Kit is manager-triggered — every route below except
+    get_kit (which a developer may also view their own copy of) needs the
+    caller to actually be a manager/admin staffed on this engagement, not
+    just anyone who knows the engagement_id."""
+    if user["role"] not in ("MANAGER", "ADMIN"):
+        raise HTTPException(status_code=403, detail="Only a manager or admin can do this")
+    if not await can_access(pool, user["email"], engagement_id):
+        raise HTTPException(status_code=403, detail="You're not staffed on this project")
+
+
 # --------------------------------------------------------------------------
 # Roster
 # --------------------------------------------------------------------------
 
 @router.get("/roster")
-async def roster(request: Request, engagement_id: str):
+async def roster(request: Request, engagement_id: str, user: VerifiedUser = Depends(require_user)):
     """Everyone staffed on the engagement (excluding managers/admins), each
     tagged is_new if staffed within NEW_MEMBER_WINDOW_DAYS, plus whether a
     kit already exists for them. Drives the manager's picker dropdown."""
     pool = request.app.state.pool
+    await _require_manager_staffed(pool, user, engagement_id)
     cutoff = datetime.now(timezone.utc) - timedelta(days=NEW_MEMBER_WINDOW_DAYS)
 
     people = await pool.fetch(
@@ -150,8 +164,11 @@ class ProjectNotesRequest(BaseModel):
 
 
 @router.put("/project-notes")
-async def set_project_notes(body: ProjectNotesRequest, request: Request):
+async def set_project_notes(
+    body: ProjectNotesRequest, request: Request, user: VerifiedUser = Depends(require_user)
+):
     pool = request.app.state.pool
+    await _require_manager_staffed(pool, user, body.engagement_id)
     await pool.execute(
         """
         INSERT INTO public.onboarding_project_notes (engagement_id, team_norms, env_setup, updated_by)
@@ -549,9 +566,10 @@ async def _common_content(request: Request, engagement_id: str) -> dict:
 
 
 @router.get("/common")
-async def get_common(request: Request, engagement_id: str):
+async def get_common(request: Request, engagement_id: str, user: VerifiedUser = Depends(require_user)):
     """Live preview of the project-common sections — what a manager sees
     before selecting anyone, and while comparing candidates."""
+    await _require_manager_staffed(request.app.state.pool, user, engagement_id)
     return await _common_content(request, engagement_id)
 
 
@@ -716,12 +734,19 @@ async def _prs_for_ticket(pool, ticket_key: Optional[str], epic_key: Optional[st
 
 
 @router.get("/preview-first-ticket")
-async def preview_first_ticket(request: Request, engagement_id: str, developer_email: str, developer_name: str):
+async def preview_first_ticket(
+    request: Request,
+    engagement_id: str,
+    developer_email: str,
+    developer_name: str,
+    user: VerifiedUser = Depends(require_user),
+):
     """Live, unsaved preview of just the person-specific section — used
     when a manager has picked someone in the dropdown but hasn't clicked
     'Add to onboarding' yet, so they can see what that person would get
     without committing to it."""
     pool = request.app.state.pool
+    await _require_manager_staffed(pool, user, engagement_id)
     jira_source = await _resolve_ticket_source(pool, engagement_id)
     first_ticket = await _first_ticket(request, jira_source, developer_email, developer_name)
     prs = await _prs_for_ticket(
@@ -742,8 +767,14 @@ async def get_kit(
     request: Request,
     engagement_id: str,
     developer_email: str,
+    user: VerifiedUser = Depends(require_user),
 ):
     pool = request.app.state.pool
+    # A developer may view their own frozen kit (the "static view" this
+    # module's docstring describes); anyone else needs to be a manager/admin
+    # actually staffed on this engagement.
+    if user["email"].lower() != developer_email.lower():
+        await _require_manager_staffed(pool, user, engagement_id)
     row = await pool.fetchrow(
         "SELECT developer_name, developer_email, engagement_id, content, "
         "created_by, created_at, updated_at FROM public.onboarding_kits "
@@ -780,8 +811,9 @@ class CreateKitRequest(BaseModel):
 
 
 @router.post("/kits")
-async def create_kit(body: CreateKitRequest, request: Request):
+async def create_kit(body: CreateKitRequest, request: Request, user: VerifiedUser = Depends(require_user)):
     pool = request.app.state.pool
+    await _require_manager_staffed(pool, user, body.engagement_id)
 
     person = await pool.fetchrow(
         "SELECT name, email FROM public.project_staffing WHERE engagement_id = $1 AND lower(email) = lower($2)",
