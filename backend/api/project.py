@@ -137,15 +137,40 @@ async def _mock_rows(request: Request, engagement_id: str) -> list:
     return [_normalize_mock(r) for r in rows]
 
 
+async def _resolve_ticket_source(pool, engagement_id: str) -> str:
+    """Whether this engagement's ticket data actually lives in
+    public.project_tickets, or should read from the single live Jira board
+    this app is wired to instead. Checking for real rows — rather than
+    trusting `engagement_id == LIVE_JIRA_ENGAGEMENT_ID` as a proxy for "has
+    its own data" — is what keeps every ticket-driven endpoint correct if
+    RELAY_ENGAGEMENT_ID or an engagement's id ever changes again: engagements
+    created by the project-setup wizard (Acme Data Migration in particular)
+    have project_staffing rows but an empty project_tickets table, and the
+    previous version of this check routed straight to that empty table and
+    silently returned zeros instead of falling back to live Jira. Identical
+    reasoning to api/onboarding.py's _resolve_ticket_source, kept as a
+    separate copy here since project.py must not import from onboarding.py.
+    """
+    if engagement_id == LIVE_JIRA_ENGAGEMENT_ID:
+        return engagement_id
+    count = await pool.fetchval(
+        "SELECT count(*) FROM public.project_tickets WHERE engagement_id = $1",
+        engagement_id,
+    )
+    return LIVE_JIRA_ENGAGEMENT_ID if not count else engagement_id
+
+
 async def _all_issues(
     request: Request,
     engagement_id: Optional[str] = None,
     requester_email: Optional[str] = None,
 ) -> list:
-    if engagement_id and engagement_id != LIVE_JIRA_ENGAGEMENT_ID:
+    if engagement_id:
         if requester_email:
             await _require_staffed(request.app.state.pool, requester_email, engagement_id)
-        return await _mock_rows(request, engagement_id)
+        source = await _resolve_ticket_source(request.app.state.pool, engagement_id)
+        if source != LIVE_JIRA_ENGAGEMENT_ID:
+            return await _mock_rows(request, source)
 
     _require_configured()
     issues = await jira_client.search_issues(f"project={jira_client.PROJECT_KEY}", ISSUE_FIELDS, max_results=100)
@@ -275,7 +300,16 @@ async def _team_rows(
             engagement_id,
             HIDDEN_ROSTER_ROLES,
         )
-        issues = await _mock_rows(request, engagement_id)
+        # Roster stays scoped to the real engagement_id (project_staffing is
+        # genuinely populated per-engagement), but ticket counts must follow
+        # _resolve_ticket_source — an engagement can have staffing without
+        # ever having its own project_tickets rows (see _all_issues above).
+        source = await _resolve_ticket_source(pool, engagement_id)
+        issues = (
+            await _all_issues(request)
+            if source == LIVE_JIRA_ENGAGEMENT_ID
+            else await _mock_rows(request, source)
+        )
         counts = _bucket_counts(issues)
         empty = {"to_do": 0, "in_progress": 0, "done": 0}
         return [

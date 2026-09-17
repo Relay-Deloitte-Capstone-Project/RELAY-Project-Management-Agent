@@ -36,4 +36,4 @@ services:
       - key: GEMINI_MODEL
         value: gemini-3.5-flash
       - key: RELAY_ENGAGEMENT_ID
-        value: proj-001
+        value: acme-data-migration-20d649
