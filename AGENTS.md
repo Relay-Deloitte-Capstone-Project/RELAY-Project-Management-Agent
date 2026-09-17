@@ -9,4 +9,4 @@ exported from Lovable once; it is **no longer connected to Lovable**).
   updates happen on feature branches: build → review/test locally → push the
   branch → open a PR → merge only when 100% certain it won't break the demo.
   Don't force-push shared history.
-- Deployment runbook: see `DEPLOY.md`.
+- Deployment runbook: see `docs/DEPLOY.md`.

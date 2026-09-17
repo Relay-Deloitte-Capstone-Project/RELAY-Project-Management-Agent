@@ -1,5 +1,5 @@
 -- SOW pipeline: real `projects` table (previously mock-only in the frontend,
--- per TASK_admin_panel.md) plus SOW document + deliverable storage.
+-- per docs/plans/TASK_admin_panel.md) plus SOW document + deliverable storage.
 --
 -- Design note: the PDF's bytes and full raw text are never stored in
 -- Postgres. sow_documents holds a pointer (storage_path) to the file on disk
@@ -12,7 +12,7 @@
 
 -- Real projects table. IDs follow the TEXT convention established in
 -- zone3.sql (engagement_id is literally 'proj-001' elsewhere in this DB,
--- never a UUID) instead of the UUID-heavy version in TASK_admin_panel.md.
+-- never a UUID) instead of the UUID-heavy version in docs/plans/TASK_admin_panel.md.
 CREATE TABLE IF NOT EXISTS public.projects (
     engagement_id     TEXT PRIMARY KEY,
     name              TEXT NOT NULL,
@@ -86,7 +86,7 @@ ALTER TABLE public.chunks DROP CONSTRAINT IF EXISTS chunks_source_type_check;
 ALTER TABLE public.chunks ADD CONSTRAINT chunks_source_type_check
     CHECK (source_type IN ('jira_ticket', 'github_commit', 'github_pr', 'confluence_doc', 'project_overview', 'sow_document'));
 
--- ingestion_logs from TASK_admin_panel.md — never migrated into the real DB
+-- ingestion_logs from docs/plans/TASK_admin_panel.md — never migrated into the real DB
 -- either. The SOW pipeline writes here on both success and failure so
 -- /admin/logs has real rows instead of the empty state it has today.
 CREATE TABLE IF NOT EXISTS public.ingestion_logs (
