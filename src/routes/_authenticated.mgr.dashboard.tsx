@@ -13,6 +13,7 @@ import {
 import { SprintBurndown } from "@/components/relay/SprintBurndown";
 import { weeklyActivity as mockWeeklyActivity } from "@/lib/mockData";
 import { useMyProject } from "@/lib/admin/useMyProject";
+import { cachedJson } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -110,9 +111,7 @@ function ManagerDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/analytics/sprints`);
-        if (!res.ok) return;
-        const json: SprintSummary[] = await res.json();
+        const json = await cachedJson<SprintSummary[]>(`${API_URL}/api/analytics/sprints`);
         if (cancelled) return;
         setSprints(json);
         setSelectedSprintId(
@@ -140,20 +139,25 @@ function ManagerDashboard() {
         // Sprint history is a live-Jira-only concept today — every other
         // engagement has no sprint data, so skip the call rather than show
         // another project's sprints.
-        const [summaryRes, teamRes, riskRes, activityRes] = await Promise.all([
-          fetch(`${API_URL}/api/project/summary?${scope}`),
-          fetch(`${API_URL}/api/project/team?${scope}`),
-          fetch(`${API_URL}/api/project/risk-signals?${scope}`),
-          fetch(`${API_URL}/api/project/activity`),
+        const [summaryResult, teamResult, riskResult, activityResult] = await Promise.allSettled([
+          cachedJson<Summary>(`${API_URL}/api/project/summary?${scope}`),
+          cachedJson<unknown[]>(`${API_URL}/api/project/team?${scope}`),
+          cachedJson<RiskSignal[]>(`${API_URL}/api/project/risk-signals?${scope}`),
+          cachedJson<Activity>(`${API_URL}/api/project/activity`),
         ]);
         if (cancelled) return;
-        if (summaryRes.ok) setSummary(await summaryRes.json());
-        if (teamRes.ok) setTeamCount((await teamRes.json()).length);
-        if (riskRes.ok) setRiskSignals(await riskRes.json());
-        if (activityRes.ok) setActivity(await activityRes.json());
+        if (summaryResult.status === "fulfilled") setSummary(summaryResult.value);
+        if (teamResult.status === "fulfilled") setTeamCount(teamResult.value.length);
+        if (riskResult.status === "fulfilled") setRiskSignals(riskResult.value);
+        if (activityResult.status === "fulfilled") setActivity(activityResult.value);
         if (onLiveJiraProject) {
-          const historyRes = await fetch(`${API_URL}/api/project/sprint-history`);
-          if (!cancelled && historyRes.ok) setSprintHistory(await historyRes.json());
+          try {
+            const history = await cachedJson<SprintHistoryEntry[]>(`${API_URL}/api/project/sprint-history`);
+            if (!cancelled) setSprintHistory(history);
+          } catch {
+            // Falls back to the "—" placeholder below, same as any other
+            // panel here that didn't load.
+          }
         } else if (!cancelled) {
           setSprintHistory([]);
         }

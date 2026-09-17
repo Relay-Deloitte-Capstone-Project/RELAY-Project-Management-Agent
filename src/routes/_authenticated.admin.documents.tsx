@@ -97,6 +97,7 @@ function DocumentsWorkspace() {
   const navigate = useNavigate({ from: Route.fullPath });
 
   const [projects, setProjects] = useState<BackendProject[]>([]);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   const [engagementId, setEngagementId] = useState<string>(search.project ?? "");
   const [docs, setDocs] = useState<PmDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,14 +110,21 @@ function DocumentsWorkspace() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
+  const loadProjects = useCallback(() => {
+    setProjectsError(null);
+    return fetchProjects()
+      .then(setProjects)
+      .catch((err: unknown) => {
+        setProjectsError(err instanceof Error ? err.message : "Couldn't load projects.");
+      });
+  }, []);
+
   useEffect(() => {
     // No auto-selecting a default project — this page manages every
     // project's documents, so which one you're looking at should always be
     // a deliberate choice, not whatever happened to load first. A
     // deep-linked ?project= (e.g. from a share link) still pre-fills it.
-    fetchProjects()
-      .then(setProjects)
-      .catch(() => {});
+    loadProjects();
   }, []);
 
   const loadDocs = useCallback(() => {
@@ -213,8 +221,13 @@ function DocumentsWorkspace() {
                 ))}
               </SelectContent>
             </Select>
-            {projects.length === 0 && (
-              <p className="text-[12px] text-mute">Loading projects…</p>
+            {projectsError ? (
+              <div className="flex flex-col items-center gap-1.5">
+                <p className="text-[12px] text-danger">{projectsError}</p>
+                <GhostButton onClick={loadProjects}>Retry</GhostButton>
+              </div>
+            ) : (
+              projects.length === 0 && <p className="text-[12px] text-mute">Loading projects…</p>
             )}
           </div>
         </PageSection>

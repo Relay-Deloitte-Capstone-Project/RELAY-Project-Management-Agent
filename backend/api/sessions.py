@@ -27,19 +27,34 @@ import time
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from api import llm
 from api.access import require_access
-from api.query import SNIPPET_CHARS, embed, ready_model, run_query, to_pgvector
+from api.auth import VerifiedUser, enforce_rate_limit, require_user
+from api.query import (
+    SNIPPET_CHARS,
+    _commit_author_allowlist,
+    embed,
+    ready_model,
+    run_query,
+    to_pgvector,
+)
 
 router = APIRouter()
 
 DEFAULT_ENGAGEMENT_ID = os.environ.get("RELAY_ENGAGEMENT_ID", "proj-001")
 
 TITLE_MAX_CHARS = 60
+
+# Ten chats per person per project — a developer's context gets harder to
+# navigate (and the sidebar noisier) well before ten, and it caps how much
+# history the search/cache/rewrite steps above ever have to consider for one
+# person. A developer who needs an eleventh deletes an old one first, same
+# motion as archiving old email.
+MAX_SESSIONS_PER_ENGAGEMENT = 10
 
 # How many recent messages are read for context / follow-up detection.
 HISTORY_MESSAGES = 6
@@ -148,41 +163,60 @@ async def _rewrite_followup(llm_providers, history, question) -> str:
 
 
 class NewSession(BaseModel):
-    user_id: str
     engagement_id: str = DEFAULT_ENGAGEMENT_ID
-    # Access is checked by email against public.project_staffing (see
-    # api/access.py) — user_id has no matching identity table this backend
-    # can query (Prisma/SQLite is a separate database from this Postgres).
-    email: str
+    # user_id/email are no longer read from here for anything identity- or
+    # access-related — kept optional only so an older cached frontend build
+    # doesn't 422 on these fields while it's still in flight. The verified
+    # bearer token (api/auth.require_user) is the only identity this endpoint
+    # trusts now; see api/auth.py for why that changed.
+    user_id: Optional[str] = None
+    email: Optional[str] = None
 
 
 class NewMessage(BaseModel):
-    user_id: str
     question: str
-    email: str
-    # Display name from the session token — lets first-person questions
-    # ("my in-progress tickets") resolve to this user in the intent layer.
+    user_id: Optional[str] = None
+    email: Optional[str] = None
     user_name: Optional[str] = None
 
 
 @router.post("/api/sessions")
-async def create_session(body: NewSession, request: Request):
+async def create_session(
+    body: NewSession, request: Request, user: VerifiedUser = Depends(require_user)
+):
     pool: asyncpg.Pool = request.app.state.pool
-    await require_access(pool, body.email, body.engagement_id)
+    await require_access(pool, user["email"], body.engagement_id)
+
+    existing = await pool.fetchval(
+        "SELECT count(*) FROM zone3.chat_sessions WHERE user_id = $1 AND engagement_id = $2",
+        user["id"],
+        body.engagement_id,
+    )
+    if existing >= MAX_SESSIONS_PER_ENGAGEMENT:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"You've reached the {MAX_SESSIONS_PER_ENGAGEMENT}-chat limit for this "
+                "project. Delete an old chat to start a new one."
+            ),
+        )
+
     row = await pool.fetchrow(
         """
         INSERT INTO zone3.chat_sessions (user_id, engagement_id)
         VALUES ($1, $2)
         RETURNING id, created_at
         """,
-        body.user_id,
+        user["id"],
         body.engagement_id,
     )
     return {"session_id": str(row["id"]), "created_at": row["created_at"]}
 
 
 @router.get("/api/sessions")
-async def list_sessions(user_id: str, engagement_id: str, request: Request):
+async def list_sessions(
+    engagement_id: str, request: Request, user: VerifiedUser = Depends(require_user)
+):
     pool: asyncpg.Pool = request.app.state.pool
     rows = await pool.fetch(
         """
@@ -194,7 +228,7 @@ async def list_sessions(user_id: str, engagement_id: str, request: Request):
         GROUP BY s.id
         ORDER BY COALESCE(s.last_message_at, s.created_at) DESC
         """,
-        user_id,
+        user["id"],
         engagement_id,
     )
     return [
@@ -210,12 +244,14 @@ async def list_sessions(user_id: str, engagement_id: str, request: Request):
 
 
 @router.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str, user_id: str, request: Request):
+async def delete_session(
+    session_id: str, request: Request, user: VerifiedUser = Depends(require_user)
+):
     pool: asyncpg.Pool = request.app.state.pool
     result = await pool.execute(
         "DELETE FROM zone3.chat_sessions WHERE id = $1 AND user_id = $2",
         session_id,
-        user_id,
+        user["id"],
     )
     # asyncpg's execute() returns a string like "DELETE 1" — 0 means either
     # the session never existed or belongs to a different user.
@@ -224,10 +260,22 @@ async def delete_session(session_id: str, user_id: str, request: Request):
     return {"ok": True}
 
 
-async def _lookup_cache(pool, user_id: str, engagement_id: str, qvec: str) -> Optional[dict]:
+async def _lookup_cache(
+    pool, user_id: str, engagement_id: str, qvec: str, requester_name: Optional[str]
+) -> Optional[dict]:
     """Reuse a past answer when the question is near-identical AND every chunk
     it cited is unchanged since it was written. Returns a run_query-shaped
-    result, or None to run the pipeline fresh."""
+    result, or None to run the pipeline fresh.
+
+    This cache is scoped to `s.user_id = $2` in CACHE_LOOKUP_SQL, so it can
+    only ever replay a person's own past answer back to themself — it never
+    leaks one user's cached answer to another. The gap it doesn't close on
+    its own: a person's OWN cached answer might have been generated before
+    the GitHub-commit authorship guardrail (api/query.py) existed, and could
+    still cite a teammate's commit that today's rules would block. Any cache
+    hit whose sources include a commit not on the requester's own allowlist
+    is refused here, forcing a live re-run that applies the current filter.
+    """
     row = await pool.fetchrow(CACHE_LOOKUP_SQL, qvec, user_id, engagement_id)
     if row is None or row["sim"] < CACHE_SIMILARITY:
         return None
@@ -239,6 +287,18 @@ async def _lookup_cache(pool, user_id: str, engagement_id: str, qvec: str) -> Op
     stale = await pool.fetchval(CACHE_STALE_SQL, row["answer_id"], row["answered_at"])
     if stale:
         return None
+    if any(s["source_type"] == "github_commit" for s in sources):
+        allowlist = await _commit_author_allowlist(pool, engagement_id, requester_name)
+        # message_sources doesn't store the chunk's author, only its id — the
+        # cheapest correct check is against the live chunks row.
+        commit_ids = [s["chunk_id"] for s in sources if s["source_type"] == "github_commit" and s["chunk_id"]]
+        if commit_ids:
+            authors = await pool.fetch(
+                "SELECT metadata->>'author' AS author FROM public.chunks WHERE id = ANY($1::uuid[])",
+                commit_ids,
+            )
+            if any(a["author"] not in allowlist for a in authors):
+                return None
     return {
         "answer": row["content"],
         "sources": [
@@ -320,13 +380,18 @@ async def _touch_session(pool, session_id: str, title: Optional[str], question: 
 
 
 @router.post("/api/sessions/{session_id}/messages")
-async def send_message(session_id: str, body: NewMessage, request: Request):
+async def send_message(
+    session_id: str,
+    body: NewMessage,
+    request: Request,
+    user: VerifiedUser = Depends(require_user),
+):
     pool: asyncpg.Pool = request.app.state.pool
 
     session = await pool.fetchrow(
         "SELECT engagement_id, title FROM zone3.chat_sessions WHERE id = $1 AND user_id = $2",
         session_id,
-        body.user_id,
+        user["id"],
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -334,7 +399,8 @@ async def send_message(session_id: str, body: NewMessage, request: Request):
     # Checked on EVERY message, not just at session creation — revoking a
     # project_staffing row takes effect on the user's next query, per D6's
     # "no cache flush or restart" requirement.
-    await require_access(pool, body.email, session["engagement_id"])
+    await require_access(pool, user["email"], session["engagement_id"])
+    await enforce_rate_limit(pool, user["id"])
 
     question = body.question.strip()
     if not question:
@@ -375,7 +441,7 @@ async def send_message(session_id: str, body: NewMessage, request: Request):
     # 4. Answer cache: same user, same project, near-identical question,
     #    cited records unchanged since → reuse the stored answer instead of
     #    re-retrieving.
-    cached = await _lookup_cache(pool, body.user_id, session["engagement_id"], qvec)
+    cached = await _lookup_cache(pool, user["id"], session["engagement_id"], qvec, user["name"])
     if cached is not None:
         cached["timing_seconds"] = round(time.perf_counter() - t_start, 3)
         await _save_user_message(pool, session_id, question, qvec)
@@ -397,7 +463,7 @@ async def send_message(session_id: str, body: NewMessage, request: Request):
         question=retrieval_question,
         engagement_id=session["engagement_id"],
         history=history,
-        user_name=body.user_name,
+        user_name=user["name"],
     )
 
     # 7. Save the assistant's message with provenance.
@@ -409,7 +475,9 @@ async def send_message(session_id: str, body: NewMessage, request: Request):
 
 
 @router.get("/api/sessions/{session_id}/messages")
-async def get_messages(session_id: str, user_id: str, request: Request):
+async def get_messages(
+    session_id: str, request: Request, user: VerifiedUser = Depends(require_user)
+):
     pool: asyncpg.Pool = request.app.state.pool
     rows = await pool.fetch(
         """
@@ -421,7 +489,7 @@ async def get_messages(session_id: str, user_id: str, request: Request):
         ORDER BY m.created_at ASC
         """,
         session_id,
-        user_id,
+        user["id"],
     )
 
     # Citations: prefer zone3.message_sources (the spec's provenance table,

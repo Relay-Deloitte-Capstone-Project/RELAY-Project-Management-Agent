@@ -35,6 +35,7 @@ import {
   type MockProject,
   type SetupStepKey,
 } from "@/lib/admin/mockProjects";
+import { invalidateCache, relayFetch } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/admin/projects_/new")({
   validateSearch: (search: Record<string, unknown>): { project?: string } => {
@@ -264,7 +265,7 @@ function NewProjectWizard() {
   useEffect(() => {
     if (!engagementId) return;
     let cancelled = false;
-    fetch(`${API_URL}/api/admin/sow?engagement_id=${engagementId}&include_deliverables=true`)
+    relayFetch(`${API_URL}/api/admin/sow?engagement_id=${engagementId}&include_deliverables=true`)
       .then((res) => (res.ok ? res.json() : []))
       .then((docs: SowDocument[]) => {
         if (cancelled || docs.length === 0) return;
@@ -324,7 +325,7 @@ function NewProjectWizard() {
         // force: true — this wizard step doesn't have room for a
         // double-staffing warning dialog; granting Ask Project access to
         // someone already staffed elsewhere is fine, not worth blocking on.
-        await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
+        await relayFetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -334,7 +335,7 @@ function NewProjectWizard() {
             force: true,
           }),
         });
-        const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`);
+        const res = await relayFetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`);
         if (!res.ok || cancelled) return;
         const rows: { id: string; name: string; email: string; role: TeamRole }[] =
           await res.json();
@@ -440,7 +441,7 @@ function NewProjectWizard() {
       form.append("engagement_id", id);
       form.append("uploaded_by", user.email || user.name);
 
-      const res = await fetch(`${API_URL}/api/admin/sow/upload`, {
+      const res = await relayFetch(`${API_URL}/api/admin/sow/upload`, {
         method: "POST",
         body: form,
       });
@@ -458,7 +459,7 @@ function NewProjectWizard() {
 
       // Upload response doesn't include deliverables — fetch the full
       // document now that parsing has finished.
-      const detailRes = await fetch(`${API_URL}/api/admin/sow/${doc.id}`);
+      const detailRes = await relayFetch(`${API_URL}/api/admin/sow/${doc.id}`);
       if (!detailRes.ok) throw new Error("Uploaded, but couldn't load parsed deliverables");
       const detail: SowDocument = await detailRes.json();
 
@@ -498,7 +499,7 @@ function NewProjectWizard() {
     setSowDocs((prev) => prev.filter((d) => d.id !== docId));
     setDeliverables((prev) => prev.filter((d) => d.sourceDocId !== docId));
     try {
-      await fetch(`${API_URL}/api/admin/sow/${docId}`, { method: "DELETE" });
+      await relayFetch(`${API_URL}/api/admin/sow/${docId}`, { method: "DELETE" });
     } catch {
       // Best-effort — it's already gone from the wizard's view either way.
     }
@@ -513,7 +514,7 @@ function NewProjectWizard() {
   // local-only, same as the rest of this still-mock wizard.
   function persistDeliverableEdit(d: Deliverable) {
     if (!d.isBackend) return;
-    fetch(`${API_URL}/api/admin/sow/deliverables/${d.id}`, {
+    relayFetch(`${API_URL}/api/admin/sow/deliverables/${d.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: d.name, acceptance_criteria: d.criteria }),
@@ -545,7 +546,7 @@ function NewProjectWizard() {
     const role = pendingRole[candidate.email] ?? "Developer";
     if (!engagementId) return;
     try {
-      const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
+      const res = await relayFetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // force: true — no double-staffing warning dialog in this step;
@@ -572,7 +573,7 @@ function NewProjectWizard() {
   function removeMember(id: string) {
     setAddedMembers((prev) => prev.filter((m) => m.id !== id));
     if (!engagementId) return;
-    fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing/${id}`, {
+    relayFetch(`${API_URL}/api/admin/projects/${engagementId}/staffing/${id}`, {
       method: "DELETE",
     }).catch(() => {
       // Best-effort — it's already gone from the wizard's view either way.
@@ -639,7 +640,7 @@ function NewProjectWizard() {
   async function ensureBackendProject(): Promise<string | null> {
     if (engagementId) return engagementId;
     try {
-      const res = await fetch(`${API_URL}/api/admin/projects`, {
+      const res = await relayFetch(`${API_URL}/api/admin/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -653,6 +654,7 @@ function NewProjectWizard() {
       if (!res.ok) return null;
       const proj: { engagement_id: string } = await res.json();
       setEngagementId(proj.engagement_id);
+      invalidateCache(`${API_URL}/api/admin/projects`);
       return proj.engagement_id;
     } catch {
       return null;
@@ -667,7 +669,7 @@ function NewProjectWizard() {
     const id = engagementId ?? (await ensureBackendProject());
     if (!id) return;
     try {
-      await fetch(`${API_URL}/api/admin/projects/${id}/${path}`, {
+      await relayFetch(`${API_URL}/api/admin/projects/${id}/${path}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -681,11 +683,13 @@ function NewProjectWizard() {
     const id = engagementId ?? (await ensureBackendProject());
     if (!id) return;
     try {
-      await fetch(`${API_URL}/api/admin/projects/${id}`, {
+      await relayFetch(`${API_URL}/api/admin/projects/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
+      invalidateCache(`${API_URL}/api/admin/projects`);
+      invalidateCache(`${API_URL}/api/admin/projects/${id}`);
     } catch {
       // Best-effort — the wizard's own progress tracking doesn't depend on this.
     }

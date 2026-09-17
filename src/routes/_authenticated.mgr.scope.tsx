@@ -11,6 +11,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { Chip, PageSection, Panel, TicketKey } from "@/components/relay/primitives";
+import { cachedJson } from "@/lib/relayApi";
 
 const API = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -113,36 +114,24 @@ function ScopeGuardian() {
   useEffect(() => {
     async function loadScopeData() {
       try {
-        const [deliverablesResponse, alertsResponse] = await Promise.all([
-          fetch(`${API}/api/scope/deliverables`),
-          fetch(`${API}/api/scope/alerts`),
+        const [deliverablesData, alertsData] = await Promise.all([
+          cachedJson<Deliverable[]>(`${API}/api/scope/deliverables`).catch(() => {
+            throw new Error("Failed to load deliverables");
+          }),
+          cachedJson<ScopeAlert[]>(`${API}/api/scope/alerts`).catch(() => {
+            throw new Error("Failed to load alerts");
+          }),
         ]);
-
-        if (!deliverablesResponse.ok) {
-          throw new Error("Failed to load deliverables");
-        }
-
-        if (!alertsResponse.ok) {
-          throw new Error("Failed to load alerts");
-        }
-
-        const deliverablesData = (await deliverablesResponse.json()) as Deliverable[];
-
-        const alertsData = (await alertsResponse.json()) as ScopeAlert[];
 
         setDeliverables(deliverablesData);
         setAlerts(alertsData);
 
         const ticketResults = await Promise.all(
-          deliverablesData.map(async (d) => {
-            const response = await fetch(
+          deliverablesData.map((d) =>
+            cachedJson<ScopeTicket[]>(
               `${API}/api/scope/tickets/KPD-${d.deliverable_key.replace("D", "")}`,
-            );
-
-            if (!response.ok) return [];
-
-            return (await response.json()) as ScopeTicket[];
-          }),
+            ).catch(() => [] as ScopeTicket[]),
+          ),
         );
 
         setTickets(ticketResults.flat());

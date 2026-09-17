@@ -27,10 +27,12 @@ import os
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api import github_client
+from api.access import require_access
+from api.auth import VerifiedUser, require_user
 
 router = APIRouter()
 
@@ -40,7 +42,6 @@ VALID_STATUSES = {"draft", "approved", "promoted"}
 
 
 class NewNote(BaseModel):
-    email: str
     engagement_id: str = DEFAULT_ENGAGEMENT_ID
     title: Optional[str] = None
     content: str
@@ -48,7 +49,6 @@ class NewNote(BaseModel):
 
 
 class EditNote(BaseModel):
-    email: str
     title: Optional[str] = None
     content: str
 
@@ -90,15 +90,17 @@ def _row_to_version(r) -> dict:
 
 @router.get("/api/scratchpad")
 async def list_notes(
-    email: str,
     engagement_id: str,
     request: Request,
     status: Optional[str] = None,
+    user: VerifiedUser = Depends(require_user),
 ):
     if status is not None and status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail="Invalid status filter")
 
     pool: asyncpg.Pool = request.app.state.pool
+    email = user["email"]
+    await require_access(pool, email, engagement_id)
     if status:
         rows = await pool.fetch(
             """
@@ -130,7 +132,9 @@ async def list_notes(
 
 
 @router.get("/api/scratchpad/search")
-async def search_notes(q: str, email: str, engagement_id: str, request: Request):
+async def search_notes(
+    q: str, engagement_id: str, request: Request, user: VerifiedUser = Depends(require_user)
+):
     """searchNotes(): tsvector GIN on search_vector — the column and index
     have existed since the schema was written (database/zone3.sql), this is
     just the first route to actually use them. Still scoped to the
@@ -138,6 +142,8 @@ async def search_notes(q: str, email: str, engagement_id: str, request: Request)
     if not q.strip():
         return []
     pool: asyncpg.Pool = request.app.state.pool
+    email = user["email"]
+    await require_access(pool, email, engagement_id)
     rows = await pool.fetch(
         """
         SELECT id, title, content, status, source_pr, pr_head_sha,
@@ -157,12 +163,13 @@ async def search_notes(q: str, email: str, engagement_id: str, request: Request)
 
 
 @router.post("/api/scratchpad")
-async def create_note(body: NewNote, request: Request):
+async def create_note(body: NewNote, request: Request, user: VerifiedUser = Depends(require_user)):
     content = body.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="Content cannot be empty")
 
     pool: asyncpg.Pool = request.app.state.pool
+    await require_access(pool, user["email"], body.engagement_id)
     # A manually-written note (no source_pr) has no "auto-drafted" step to
     # approve — it goes straight to approved, matching how "Write a note"
     # behaved before this backend existed. A PR-sourced note still lands as
@@ -187,7 +194,7 @@ async def create_note(body: NewNote, request: Request):
                   current_version, created_at, updated_at, approved_at,
                   source_ticket, provenance_ids
         """,
-        body.email,
+        user["email"],
         body.engagement_id,
         body.title,
         content,
@@ -199,7 +206,9 @@ async def create_note(body: NewNote, request: Request):
 
 
 @router.patch("/api/scratchpad/{note_id}")
-async def edit_note(note_id: str, body: EditNote, request: Request):
+async def edit_note(
+    note_id: str, body: EditNote, request: Request, user: VerifiedUser = Depends(require_user)
+):
     """Manual content edit — snapshots the pre-edit content as a version
     before overwriting, so nothing a developer captured is ever silently
     lost to their next edit."""
@@ -218,7 +227,7 @@ async def edit_note(note_id: str, body: EditNote, request: Request):
                 FOR UPDATE
                 """,
                 note_id,
-                body.email,
+                user["email"],
             )
             if current is None:
                 raise HTTPException(status_code=404, detail="Note not found")
@@ -246,7 +255,7 @@ async def edit_note(note_id: str, body: EditNote, request: Request):
                           source_ticket, provenance_ids
                 """,
                 note_id,
-                body.email,
+                user["email"],
                 body.title,
                 content,
             )
@@ -254,14 +263,14 @@ async def edit_note(note_id: str, body: EditNote, request: Request):
 
 
 @router.get("/api/scratchpad/{note_id}/versions")
-async def list_versions(note_id: str, email: str, request: Request):
+async def list_versions(note_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     pool: asyncpg.Pool = request.app.state.pool
     owner = await pool.fetchval(
         "SELECT email FROM zone3.scratchpad_notes WHERE id = $1", note_id
     )
     if owner is None:
         raise HTTPException(status_code=404, detail="Note not found")
-    if owner.lower() != email.lower():
+    if owner.lower() != user["email"].lower():
         raise HTTPException(status_code=403, detail="Not your note")
 
     rows = await pool.fetch(
@@ -277,7 +286,7 @@ async def list_versions(note_id: str, email: str, request: Request):
 
 
 @router.get("/api/scratchpad/{note_id}/sources")
-async def note_sources(note_id: str, email: str, request: Request):
+async def note_sources(note_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     """"Show which one" — the Jira ticket and, while provenance is still
     live (draft, not yet approved), the exact commits a note was distilled
     from. Once approve_note() severs provenance_ids, this correctly stops
@@ -294,7 +303,7 @@ async def note_sources(note_id: str, email: str, request: Request):
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
-    if note["email"].lower() != email.lower():
+    if note["email"].lower() != user["email"].lower():
         raise HTTPException(status_code=403, detail="Not your note")
 
     commits = []
@@ -326,7 +335,7 @@ async def note_sources(note_id: str, email: str, request: Request):
 
 
 @router.post("/api/scratchpad/{note_id}/check-pr-update")
-async def check_pr_update(note_id: str, email: str, request: Request):
+async def check_pr_update(note_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     """For a PR-sourced note: check whether the linked PR's code has changed
     since the note last synced (pr_head_sha moved). If so, snapshot the
     note's current content as a pr_update version — the note's own text
@@ -345,7 +354,7 @@ async def check_pr_update(note_id: str, email: str, request: Request):
         WHERE id = $1 AND lower(email) = lower($2)
         """,
         note_id,
-        email,
+        user["email"],
     )
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -387,7 +396,7 @@ async def check_pr_update(note_id: str, email: str, request: Request):
 
 
 @router.patch("/api/scratchpad/{note_id}/approve")
-async def approve_note(note_id: str, email: str, request: Request):
+async def approve_note(note_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     """The provenance cut. Setting provenance_ids = NULL here is what turns
     an auto-drafted note into a human-made artifact — from this point it's
     exempt from the R9 offboarding cascade (api.scratchpad_triggers.
@@ -402,7 +411,7 @@ async def approve_note(note_id: str, email: str, request: Request):
         WHERE id = $1 AND lower(email) = lower($2)
         """,
         note_id,
-        email,
+        user["email"],
     )
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail="Note not found")
@@ -410,7 +419,7 @@ async def approve_note(note_id: str, email: str, request: Request):
 
 
 @router.patch("/api/scratchpad/{note_id}/promote")
-async def promote_note(note_id: str, email: str, request: Request):
+async def promote_note(note_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     """Promotion is append-only ("Log who, when") — the status flip and the
     zone3.scratchpad_promotions row are written in the same transaction so
     a note can never end up 'promoted' with no record of who did it."""
@@ -424,7 +433,7 @@ async def promote_note(note_id: str, email: str, request: Request):
                 WHERE id = $1 AND lower(email) = lower($2) AND status = 'approved'
                 """,
                 note_id,
-                email,
+                user["email"],
             )
             if result == "UPDATE 0":
                 raise HTTPException(
@@ -436,18 +445,18 @@ async def promote_note(note_id: str, email: str, request: Request):
                 VALUES ($1, $2)
                 """,
                 note_id,
-                email,
+                user["email"],
             )
     return {"ok": True}
 
 
 @router.delete("/api/scratchpad/{note_id}")
-async def delete_note(note_id: str, email: str, request: Request):
+async def delete_note(note_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     pool: asyncpg.Pool = request.app.state.pool
     result = await pool.execute(
         "DELETE FROM zone3.scratchpad_notes WHERE id = $1 AND lower(email) = lower($2)",
         note_id,
-        email,
+        user["email"],
     )
     if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Note not found")

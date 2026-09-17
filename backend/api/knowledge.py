@@ -10,13 +10,15 @@ Aggregate counts only — no message bodies, no per-user attribution.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+
+from api.auth import VerifiedUser, require_role
 
 router = APIRouter()
 
 
 @router.get("/api/admin/knowledge-base")
-async def knowledge_base(request: Request):
+async def knowledge_base(request: Request, user: VerifiedUser = Depends(require_role("ADMIN", "MANAGER"))):
     async with request.app.state.pool.acquire() as conn:
         chunks = await conn.fetch("""
             SELECT source_type, count(*)::int AS count

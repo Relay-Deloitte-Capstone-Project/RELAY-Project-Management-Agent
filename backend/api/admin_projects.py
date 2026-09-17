@@ -30,12 +30,19 @@ from datetime import date
 from typing import Optional
 
 import asyncpg
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from api.auth import VerifiedUser, require_role
 from api.scratchpad_triggers import cascade_delete_engagement
 
 router = APIRouter()
+
+# Every route below manages engagement setup, staffing, and integration
+# links — admin-only, same as the setup wizard it backs. None of this had
+# any auth at all before: anyone who could reach the URL could create,
+# reconfigure, or delete a client engagement, or add/remove staffing.
+_Admin = Depends(require_role("ADMIN"))
 
 
 def _slugify(name: str) -> str:
@@ -116,7 +123,7 @@ async def _require_project(pool: asyncpg.Pool, engagement_id: str):
 
 
 @router.post("/api/admin/projects")
-async def create_project(body: NewProject, request: Request):
+async def create_project(body: NewProject, request: Request, user: VerifiedUser = _Admin):
     name = body.name.strip()
     client_name = body.client_name.strip()
     if not name or not client_name:
@@ -144,7 +151,7 @@ async def create_project(body: NewProject, request: Request):
 
 
 @router.get("/api/admin/projects")
-async def list_projects(request: Request):
+async def list_projects(request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     rows = await pool.fetch(
         """
@@ -165,7 +172,7 @@ async def list_projects(request: Request):
 
 
 @router.get("/api/admin/projects/{engagement_id}")
-async def get_project(engagement_id: str, request: Request):
+async def get_project(engagement_id: str, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     row = await pool.fetchrow(
         """
@@ -188,7 +195,7 @@ async def get_project(engagement_id: str, request: Request):
 
 
 @router.patch("/api/admin/projects/{engagement_id}")
-async def update_project(engagement_id: str, body: UpdateProject, request: Request):
+async def update_project(engagement_id: str, body: UpdateProject, request: Request, user: VerifiedUser = _Admin):
     if body.status is not None and body.status not in ("setup", "active", "archived"):
         raise HTTPException(status_code=400, detail="Invalid status")
 
@@ -212,7 +219,7 @@ async def update_project(engagement_id: str, body: UpdateProject, request: Reque
 
 
 @router.delete("/api/admin/projects/{engagement_id}")
-async def delete_project(engagement_id: str, request: Request):
+async def delete_project(engagement_id: str, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     # project_jira_links/github_links/governance/sow_documents/ingestion_logs/
     # project_staffing/project_tickets/project_commits all FK engagement_id
@@ -242,7 +249,7 @@ async def delete_project(engagement_id: str, request: Request):
 
 
 @router.put("/api/admin/projects/{engagement_id}/jira")
-async def upsert_jira_link(engagement_id: str, body: JiraLink, request: Request):
+async def upsert_jira_link(engagement_id: str, body: JiraLink, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     await _require_project(pool, engagement_id)
     if not body.project_key.strip():
@@ -266,7 +273,7 @@ async def upsert_jira_link(engagement_id: str, body: JiraLink, request: Request)
 
 
 @router.put("/api/admin/projects/{engagement_id}/github")
-async def upsert_github_link(engagement_id: str, body: GithubLink, request: Request):
+async def upsert_github_link(engagement_id: str, body: GithubLink, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     await _require_project(pool, engagement_id)
     if not body.repo_url.strip():
@@ -290,7 +297,7 @@ async def upsert_github_link(engagement_id: str, body: GithubLink, request: Requ
 
 
 @router.put("/api/admin/projects/{engagement_id}/governance")
-async def upsert_governance(engagement_id: str, body: Governance, request: Request):
+async def upsert_governance(engagement_id: str, body: Governance, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     await _require_project(pool, engagement_id)
 
@@ -335,7 +342,7 @@ async def upsert_governance(engagement_id: str, body: Governance, request: Reque
 # --- Staffing roster (wizard Step 5 UI) — public.project_staffing. ----------
 
 @router.get("/api/admin/projects/{engagement_id}/staffing")
-async def list_staffing(engagement_id: str, request: Request):
+async def list_staffing(engagement_id: str, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     await _require_project(pool, engagement_id)
     rows = await pool.fetch(
@@ -351,7 +358,7 @@ async def list_staffing(engagement_id: str, request: Request):
 
 
 @router.post("/api/admin/projects/{engagement_id}/staffing")
-async def add_staff_member(engagement_id: str, body: NewStaffMember, request: Request):
+async def add_staff_member(engagement_id: str, body: NewStaffMember, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     await _require_project(pool, engagement_id)
 
@@ -406,7 +413,7 @@ async def add_staff_member(engagement_id: str, body: NewStaffMember, request: Re
 
 
 @router.delete("/api/admin/projects/{engagement_id}/staffing/{member_id}")
-async def remove_staff_member(engagement_id: str, member_id: str, request: Request):
+async def remove_staff_member(engagement_id: str, member_id: str, request: Request, user: VerifiedUser = _Admin):
     pool: asyncpg.Pool = request.app.state.pool
     deleted = await pool.fetchval(
         """
@@ -420,3 +427,28 @@ async def remove_staff_member(engagement_id: str, member_id: str, request: Reque
     if not deleted:
         raise HTTPException(status_code=404, detail="Member not found on this project")
     return {"deleted": True}
+
+
+@router.get("/api/admin/user-projects")
+async def user_projects(email: str, request: Request, user: VerifiedUser = _Admin):
+    """Admin-only: which projects a GIVEN user (any user, by email) is
+    staffed on — backs the "All Users" table's project column
+    (src/lib/admin/functions.ts's listAppUsers). Deliberately separate from
+    api/me.py's /api/me/projects, which only ever returns the CALLER's own
+    projects now and ignores any other email passed to it — that fix closed
+    a real IDOR (anyone could look up any other person's projects by email)
+    but also broke this admin lookup, which is a legitimately different,
+    admin-gated case: an admin looking up someone ELSE's projects on
+    purpose, not a person reading their own."""
+    pool: asyncpg.Pool = request.app.state.pool
+    rows = await pool.fetch(
+        """
+        SELECT p.engagement_id, p.project_code, p.name, p.client_name, m.role
+        FROM public.project_staffing m
+        JOIN public.projects p ON p.engagement_id = m.engagement_id
+        WHERE lower(m.email) = lower($1) AND p.status != 'archived'
+        ORDER BY m.assigned_at ASC
+        """,
+        email,
+    )
+    return [dict(r) for r in rows]

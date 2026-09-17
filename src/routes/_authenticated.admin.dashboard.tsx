@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/admin/dashboard")({
   head: () => ({
@@ -47,12 +48,13 @@ function SystemHealth() {
     let cancelled = false;
     (async () => {
       try {
-        const [servicesRes, summaryRes] = await Promise.all([
-          fetch(`${API_URL}/api/project/services`),
-          fetch(`${API_URL}/api/project/summary`),
+        // Short TTL, not the usual 60s default — this page's whole purpose
+        // is showing whether services are up *right now*, so it shouldn't
+        // mask a real outage behind a stale cached "Connected".
+        const [servicesJson, summaryJson] = await Promise.all([
+          cachedJson<ServiceStatus[]>(`${API_URL}/api/project/services`, { ttlMs: 10_000 }),
+          cachedJson<Summary>(`${API_URL}/api/project/summary`, { ttlMs: 10_000 }),
         ]);
-        if (!servicesRes.ok || !summaryRes.ok) throw new Error("Request failed");
-        const [servicesJson, summaryJson] = await Promise.all([servicesRes.json(), summaryRes.json()]);
         if (!cancelled) {
           setServices(servicesJson);
           setSummary(summaryJson);

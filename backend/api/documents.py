@@ -44,17 +44,33 @@ from typing import Optional
 
 import asyncpg
 import yaml
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from docx import Document as DocxDocument
 from pypdf import PdfReader
 from starlette.concurrency import run_in_threadpool
 
 from api import llm
+from api.access import can_access
+from api.auth import VerifiedUser, require_user
 from api.query import embed, ready_model, to_pgvector
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def _require_doc_access(pool: asyncpg.Pool, user: VerifiedUser, engagement_id: str) -> None:
+    """PM document management is shared between admins (any project) and
+    managers (their own project only) — src/routes/_authenticated.mgr.
+    documents.tsx runs this exact same upload/list/confirm/reject/delete
+    pipeline, scoped to useMyProject()'s engagement_id. An earlier pass
+    gated every route here as ADMIN-only, which broke that manager page
+    outright (silently — it just showed "nothing here yet")."""
+    if user["role"] == "ADMIN":
+        return
+    if user["role"] == "MANAGER" and await can_access(pool, user["email"], engagement_id):
+        return
+    raise HTTPException(status_code=403, detail="You don't have permission to manage this project's documents")
 
 DEFAULT_ENGAGEMENT_ID = os.environ.get("RELAY_ENGAGEMENT_ID", "proj-001")
 STORAGE_ROOT = Path(__file__).parent.parent / "storage" / "pm_documents"
@@ -455,6 +471,7 @@ async def upload_documents(
     files: list[UploadFile] = File(...),
     engagement_id: str = Form(DEFAULT_ENGAGEMENT_ID),
     uploaded_by: Optional[str] = Form(None),
+    user: VerifiedUser = Depends(require_user),
 ):
     """Accepts one or more files in a single request — either picked
     individually, picked as a folder (browsers send a folder's files as a
@@ -462,6 +479,7 @@ async def upload_documents(
     is classified independently; one bad file in a batch doesn't fail the
     others (each gets its own try/except in _ingest_one)."""
     pool: asyncpg.Pool = request.app.state.pool
+    await _require_doc_access(pool, user, engagement_id)
     project = await pool.fetchval(
         "SELECT engagement_id FROM public.projects WHERE engagement_id = $1", engagement_id
     )
@@ -490,8 +508,10 @@ async def list_documents(
     engagement_id: str = DEFAULT_ENGAGEMENT_ID,
     ingestion_status: Optional[str] = None,
     doc_type: Optional[str] = None,
+    user: VerifiedUser = Depends(require_user),
 ):
     pool: asyncpg.Pool = request.app.state.pool
+    await _require_doc_access(pool, user, engagement_id)
     query = DOC_SELECT + " WHERE engagement_id = $1"
     params = [engagement_id]
     if ingestion_status:
@@ -513,11 +533,12 @@ async def list_documents(
 
 
 @router.get("/api/admin/documents/{document_id}")
-async def get_document(document_id: str, request: Request):
+async def get_document(document_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     pool: asyncpg.Pool = request.app.state.pool
     row = await pool.fetchrow(DOC_SELECT + " WHERE id = $1", document_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    await _require_doc_access(pool, user, row["engagement_id"])
     return _row_to_dict(row)
 
 
@@ -535,7 +556,9 @@ class ConfirmEdits(BaseModel):
 
 
 @router.patch("/api/admin/documents/{document_id}/confirm")
-async def confirm_document(document_id: str, body: ConfirmEdits, request: Request):
+async def confirm_document(
+    document_id: str, body: ConfirmEdits, request: Request, user: VerifiedUser = Depends(require_user)
+):
     """Applies any last edits, then materializes pending_sections into
     public.chunks (embedding each one) and flips is_latest for this
     recurrence group — this is the only place a PM document becomes
@@ -546,6 +569,7 @@ async def confirm_document(document_id: str, body: ConfirmEdits, request: Reques
     row = await pool.fetchrow(DOC_SELECT + " WHERE id = $1", document_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    await _require_doc_access(pool, user, row["engagement_id"])
     doc = _row_to_dict(row)
     if doc["ingestion_status"] not in ("needs_review", "confirmed"):
         raise HTTPException(
@@ -684,20 +708,28 @@ async def confirm_document(document_id: str, body: ConfirmEdits, request: Reques
 
 
 @router.patch("/api/admin/documents/{document_id}/reject")
-async def reject_document(document_id: str, request: Request):
+async def reject_document(document_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     pool: asyncpg.Pool = request.app.state.pool
-    result = await pool.execute(
+    engagement_id = await pool.fetchval(
+        "SELECT engagement_id FROM public.pm_documents WHERE id = $1", document_id
+    )
+    if engagement_id is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    await _require_doc_access(pool, user, engagement_id)
+    await pool.execute(
         "UPDATE public.pm_documents SET ingestion_status = 'rejected' WHERE id = $1", document_id
     )
-    if result == "UPDATE 0":
-        raise HTTPException(status_code=404, detail="Document not found")
     return {"ok": True}
 
 
 @router.delete("/api/admin/documents/{document_id}")
-async def delete_document(document_id: str, request: Request):
+async def delete_document(document_id: str, request: Request, user: VerifiedUser = Depends(require_user)):
     pool: asyncpg.Pool = request.app.state.pool
-    result = await pool.execute("DELETE FROM public.pm_documents WHERE id = $1", document_id)
-    if result == "DELETE 0":
+    engagement_id = await pool.fetchval(
+        "SELECT engagement_id FROM public.pm_documents WHERE id = $1", document_id
+    )
+    if engagement_id is None:
         raise HTTPException(status_code=404, detail="Document not found")
+    await _require_doc_access(pool, user, engagement_id)
+    await pool.execute("DELETE FROM public.pm_documents WHERE id = $1", document_id)
     return {"ok": True}

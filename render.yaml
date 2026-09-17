@@ -14,6 +14,11 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      # Must be byte-for-byte identical to Vercel's JWT_SECRET — this backend
+      # verifies the same tokens the Node frontend signs (backend/api/auth.py).
+      # A mismatch here rejects every Ask Project request as unauthenticated.
+      - key: JWT_SECRET
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: GOOGLE_GEMINI_API

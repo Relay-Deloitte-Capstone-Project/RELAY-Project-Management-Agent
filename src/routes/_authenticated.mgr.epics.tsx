@@ -4,6 +4,7 @@ import { RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { Chip, GhostButton, PageSection, Panel, SectionLabel } from "@/components/relay/primitives";
+import { cachedJson, relayFetch } from "@/lib/relayApi";
 
 type Epic = {
   epic_key: string;
@@ -73,13 +74,10 @@ function ManagerEpics() {
     try {
       setRefreshing(true);
 
-      const response = await fetch(`${API}/api/scope/epics`);
-
-      if (!response.ok) {
-        throw new Error("Failed to load epics");
-      }
-
-      const data = await response.json();
+      // Always force a fresh fetch here, never the cache — this page already
+      // polls every 30s and has its own manual Refresh button, both of which
+      // would otherwise just re-serve the same minute-old cached snapshot.
+      const data = await cachedJson<Epic[]>(`${API}/api/scope/epics`, { fresh: true });
       setEpics(data);
     } catch (error) {
       console.error("Failed to load epic progress:", error);
@@ -93,7 +91,7 @@ function ManagerEpics() {
     try {
       setSummaryLoading(epicKey);
 
-      const response = await fetch(`${API}/api/scope/epics/${epicKey}/summary`, {
+      const response = await relayFetch(`${API}/api/scope/epics/${epicKey}/summary`, {
         method: "POST",
       });
 

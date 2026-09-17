@@ -2,16 +2,21 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api import jira_client
+from api.auth import VerifiedUser, require_role
 
 router = APIRouter()
 
+# Handover Kit is a manager tool (it can reassign live Jira tickets and
+# leave status) — had no auth at all before.
+_Manager = Depends(require_role("ADMIN", "MANAGER"))
+
 
 @router.get("/api/handover/kpd/tickets")
-async def kpd_tickets():
+async def kpd_tickets(user: VerifiedUser = _Manager):
     if not jira_client.configured():
         raise HTTPException(
             status_code=503,
@@ -45,7 +50,7 @@ class AssigneeUpdate(BaseModel):
 
 
 @router.put("/api/handover/kpd/tickets/{issue_key}/assignee")
-async def update_kpd_assignee(issue_key: str, payload: AssigneeUpdate):
+async def update_kpd_assignee(issue_key: str, payload: AssigneeUpdate, user: VerifiedUser = _Manager):
     if not jira_client.configured():
         raise HTTPException(
             status_code=503,
@@ -75,7 +80,7 @@ class LeaveUpdate(BaseModel):
 
 
 @router.put("/api/handover/kpd/leave")
-async def update_kpd_leave(payload: LeaveUpdate):
+async def update_kpd_leave(payload: LeaveUpdate, user: VerifiedUser = _Manager):
     """Sync Team Handover leave status to the real Jira user."""
     if not jira_client.configured():
         raise HTTPException(
@@ -104,7 +109,7 @@ async def update_kpd_leave(payload: LeaveUpdate):
 
 
 @router.get("/api/handover/kpd/leave/{account_id}")
-async def get_kpd_leave(account_id: str):
+async def get_kpd_leave(account_id: str, user: VerifiedUser = _Manager):
     """Read Team Handover leave status from the real Jira user."""
     if not jira_client.configured():
         raise HTTPException(

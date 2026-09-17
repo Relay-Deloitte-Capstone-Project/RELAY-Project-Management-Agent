@@ -10,13 +10,18 @@ scoped to it instead of a shared default.
 """
 
 import asyncpg
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+
+from api.auth import VerifiedUser, require_user
 
 router = APIRouter()
 
 
 @router.get("/api/me/projects")
-async def my_projects(email: str, request: Request):
+async def my_projects(request: Request, user: VerifiedUser = Depends(require_user)):
+    """Scoped to the verified caller's own email — used to be a plain
+    `email` query param, letting anyone look up any other person's project
+    list and role just by knowing (or guessing) their email address."""
     pool: asyncpg.Pool = request.app.state.pool
     rows = await pool.fetch(
         """
@@ -26,6 +31,6 @@ async def my_projects(email: str, request: Request):
         WHERE lower(m.email) = lower($1) AND p.status != 'archived'
         ORDER BY m.assigned_at ASC
         """,
-        email,
+        user["email"],
     )
     return [dict(r) for r in rows]

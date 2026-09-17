@@ -9,6 +9,7 @@ import { TeamRoster } from "@/components/relay/TeamRoster";
 import { validateGithub, validateJira } from "@/lib/admin/validators";
 import type { BackendProject } from "@/lib/admin/backendProjects";
 import type { SessionUser } from "@/lib/auth/types";
+import { relayFetch } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -43,7 +44,7 @@ function JiraEditor({ project }: { project: BackendProject }) {
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/projects/${project.engagement_id}/jira`, {
+      const res = await relayFetch(`${API_URL}/api/admin/projects/${project.engagement_id}/jira`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ base_url: baseUrl, project_key: projectKey.toUpperCase() }),
@@ -102,7 +103,7 @@ function GithubEditor({ project }: { project: BackendProject }) {
     setError(null);
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/projects/${project.engagement_id}/github`, {
+      const res = await relayFetch(`${API_URL}/api/admin/projects/${project.engagement_id}/github`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: repoUrl, branch: branch || "main" }),
@@ -154,7 +155,7 @@ function GovernanceEditor({ project }: { project: BackendProject }) {
   async function save() {
     setSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/projects/${project.engagement_id}/governance`, {
+      const res = await relayFetch(`${API_URL}/api/admin/projects/${project.engagement_id}/governance`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

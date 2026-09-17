@@ -5,6 +5,7 @@ import { AppShell } from "@/components/relay/AppShell";
 import { EmptyState, PageSection, Panel, SkeletonPanel } from "@/components/relay/primitives";
 import { OnboardingKitBody, OnboardingSectionNav, type Kit } from "@/components/relay/OnboardingKitBody";
 import { useMyProject } from "@/lib/admin/useMyProject";
+import { cachedJson } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -33,9 +34,10 @@ function DevOnboardingKit() {
   useEffect(() => {
     if (!engagementId) return;
     setLoading(true);
-    fetch(`${API_URL}/api/onboarding/kits?engagement_id=${engagementId}&developer_email=${encodeURIComponent(user.email)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("none"))))
-      .then((data: Kit) => setKit(data))
+    cachedJson<Kit>(
+      `${API_URL}/api/onboarding/kits?engagement_id=${engagementId}&developer_email=${encodeURIComponent(user.email)}`,
+    )
+      .then((data) => setKit(data))
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [engagementId, user.email]);
