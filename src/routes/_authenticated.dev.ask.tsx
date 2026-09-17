@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { AppShell } from "@/components/relay/AppShell";
+import { getAskApiToken } from "@/lib/auth/functions";
 import {
   Select,
   SelectContent,
@@ -96,11 +97,39 @@ type Message =
     }
   | { role: "error"; text: string };
 
+// The backend now verifies a bearer token on every Ask Project request
+// (backend/api/auth.py) instead of trusting whatever email/user_id a client
+// puts in the request — this is what closes that gap on the frontend side.
+// Session cookies are HttpOnly (browser JS can't read them to attach as a
+// header), so this fetches a separate, short-lived, purpose-made token via
+// a server function instead — cached in memory and refreshed a little
+// before its 15-minute expiry, or immediately on an unexpected 401.
+let apiTokenCache: { token: string; expiresAt: number } | null = null;
+
+async function getApiToken(forceRefresh = false): Promise<string> {
+  if (!forceRefresh && apiTokenCache && apiTokenCache.expiresAt > Date.now()) {
+    return apiTokenCache.token;
+  }
+  const { token, expiresInSeconds } = await getAskApiToken();
+  // Refresh 60s early so an in-flight request never races the real expiry.
+  apiTokenCache = { token, expiresAt: Date.now() + (expiresInSeconds - 60) * 1000 };
+  return token;
+}
+
 async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...init,
-  });
+  const call = async (token: string) =>
+    fetch(`${API_URL}${path}`, {
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      ...init,
+    });
+
+  let res = await call(await getApiToken());
+  if (res.status === 401) {
+    // Token expired or was rejected — get a fresh one and retry exactly
+    // once, rather than failing a request over a token that just needed
+    // renewing.
+    res = await call(await getApiToken(true));
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(body?.detail ?? `Request failed (${res.status})`);
@@ -349,16 +378,20 @@ function AskProject() {
           s.map((x) => (x.id === sid ? { ...x, title: x.title ?? question.slice(0, 60) } : x)),
         );
     } catch (err) {
-      setMessages((m) => [
-        ...m,
-        {
-          role: "error",
-          text:
-            err instanceof Error
-              ? `Couldn't reach the backend: ${err.message}`
-              : "Couldn't reach the backend.",
-        },
-      ]);
+      // A network-level failure (offline, CORS, connection refused) throws a
+      // plain TypeError with no useful message of its own — that's the only
+      // case that gets the generic framing. Every other error already carries
+      // a clear, specific reason from the backend (bad question, rate limit,
+      // session-count limit, etc.) that should be shown as-is, not buried
+      // under "couldn't reach the backend" when the backend was reached fine
+      // and simply declined.
+      const text =
+        err instanceof TypeError
+          ? "Couldn't reach the backend — check your connection and try again."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong.";
+      setMessages((m) => [...m, { role: "error", text }]);
     } finally {
       setPending(false);
     }

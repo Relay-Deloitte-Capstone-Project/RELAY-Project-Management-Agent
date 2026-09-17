@@ -13,6 +13,7 @@ import {
 } from "@/components/relay/primitives";
 import { branches } from "@/lib/mockData";
 import { useMyProject } from "@/lib/admin/useMyProject";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/dev/work")({
   head: () => ({
@@ -70,14 +71,14 @@ function MyWork() {
     let cancelled = false;
     (async () => {
       try {
-        const [recentRes, unassignedRes] = await Promise.all([
-          fetch(
+        const [recentResult, unassignedResult] = await Promise.allSettled([
+          cachedJson<RecentKnowledge[]>(
             `${API_URL}/api/project/recent-knowledge?engagement_id=${encodeURIComponent(project.engagement_id)}&limit=6`,
           ),
-          fetch(`${API_URL}/api/project/unassigned-tickets?limit=6`),
+          cachedJson<UnassignedTicket[]>(`${API_URL}/api/project/unassigned-tickets?limit=6`),
         ]);
-        if (!cancelled && recentRes.ok) setRecent(await recentRes.json());
-        if (!cancelled && unassignedRes.ok) setUnassigned(await unassignedRes.json());
+        if (!cancelled && recentResult.status === "fulfilled") setRecent(recentResult.value);
+        if (!cancelled && unassignedResult.status === "fulfilled") setUnassigned(unassignedResult.value);
       } catch {
         // Both panels degrade to their own empty state — neither blocks the page.
       }
@@ -97,9 +98,7 @@ function MyWork() {
           engagement_id: project.engagement_id,
           requester_email: user.email,
         });
-        const res = await fetch(`${API_URL}/api/project/tickets?${params}`);
-        if (!res.ok) throw new Error("Request failed");
-        const json: Ticket[] = await res.json();
+        const json = await cachedJson<Ticket[]>(`${API_URL}/api/project/tickets?${params}`);
         if (!cancelled) setTickets(json);
       } catch (err) {
         if (!cancelled)

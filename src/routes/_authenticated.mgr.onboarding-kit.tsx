@@ -22,6 +22,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useMyProject } from "@/lib/admin/useMyProject";
+import { cachedJson, invalidateCache, relayFetch } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -76,9 +77,8 @@ function OnboardingKitPage() {
   const loadRoster = () => {
     if (!engagementId) return;
     setRosterLoading(true);
-    fetch(`${API_URL}/api/onboarding/roster?engagement_id=${engagementId}`)
-      .then((r) => r.json())
-      .then((rows: RosterEntry[]) => setRoster(rows))
+    cachedJson<RosterEntry[]>(`${API_URL}/api/onboarding/roster?engagement_id=${engagementId}`)
+      .then((rows) => setRoster(rows))
       .catch(() => toast.error("Couldn't load the team roster"))
       .finally(() => setRosterLoading(false));
   };
@@ -89,9 +89,8 @@ function OnboardingKitPage() {
   const loadCommon = () => {
     if (!engagementId) return;
     setCommonLoading(true);
-    fetch(`${API_URL}/api/onboarding/common?engagement_id=${engagementId}`)
-      .then((r) => r.json())
-      .then((data: CommonContent) => {
+    cachedJson<CommonContent>(`${API_URL}/api/onboarding/common?engagement_id=${engagementId}`)
+      .then((data) => {
         setCommon(data);
         setTeamNormsDraft(data.team_norms);
         setEnvSetupDraft(data.env_setup);
@@ -116,19 +115,19 @@ function OnboardingKitPage() {
     }
     if (selected.has_kit) {
       setPersonalLoading(true);
-      fetch(`${API_URL}/api/onboarding/kits?engagement_id=${engagementId}&developer_email=${encodeURIComponent(selectedEmail)}`)
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("none"))))
-        .then((data: Kit) => setFrozenKit(data))
+      cachedJson<Kit>(
+        `${API_URL}/api/onboarding/kits?engagement_id=${engagementId}&developer_email=${encodeURIComponent(selectedEmail)}`,
+      )
+        .then((data) => setFrozenKit(data))
         .catch(() => setFrozenKit(null))
         .finally(() => setPersonalLoading(false));
     } else {
       setFrozenKit(null);
       setPersonalLoading(true);
-      fetch(
+      cachedJson<FirstTicketPreview>(
         `${API_URL}/api/onboarding/preview-first-ticket?engagement_id=${engagementId}&developer_email=${encodeURIComponent(selectedEmail)}&developer_name=${encodeURIComponent(selected.name)}`,
       )
-        .then((r) => r.json())
-        .then((data: FirstTicketPreview) => {
+        .then((data) => {
           setPersonalContent(data);
           setSuggestedBuddy(data.suggested_buddy ?? null);
         })
@@ -144,7 +143,7 @@ function OnboardingKitPage() {
     if (!engagementId) return;
     setSavingNotes(true);
     try {
-      await fetch(`${API_URL}/api/onboarding/project-notes`, {
+      await relayFetch(`${API_URL}/api/onboarding/project-notes`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -155,6 +154,7 @@ function OnboardingKitPage() {
         }),
       });
       setCommon((c) => (c ? { ...c, team_norms: teamNormsDraft, env_setup: envSetupDraft } : c));
+      invalidateCache(`${API_URL}/api/onboarding/common?engagement_id=${engagementId}`);
       toast.success("Saved — applies to every kit created from now on.");
     } catch {
       toast.error("Couldn't save.");
@@ -167,7 +167,7 @@ function OnboardingKitPage() {
     if (!engagementId || !selectedEmail) return;
     setCreating(true);
     try {
-      const res = await fetch(`${API_URL}/api/onboarding/kits`, {
+      const res = await relayFetch(`${API_URL}/api/onboarding/kits`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -180,6 +180,10 @@ function OnboardingKitPage() {
       if (!res.ok) throw new Error(await res.text());
       const data: Kit = await res.json();
       setFrozenKit(data);
+      invalidateCache(`${API_URL}/api/onboarding/roster?engagement_id=${engagementId}`);
+      invalidateCache(
+        `${API_URL}/api/onboarding/kits?engagement_id=${engagementId}&developer_email=${encodeURIComponent(selectedEmail)}`,
+      );
       loadRoster();
       toast.success(`Onboarding kit ${selected?.has_kit ? "re-created" : "added"} for ${data.developer_name}`);
     } catch {

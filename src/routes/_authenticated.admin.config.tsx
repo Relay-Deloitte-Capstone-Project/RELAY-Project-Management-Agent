@@ -3,6 +3,7 @@ import { Database, GitBranch, RadioTower, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
 import { PageSection, Panel } from "@/components/relay/primitives";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/admin/config")({
   head: () => ({
@@ -39,9 +40,7 @@ function Configuration() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/project/config`);
-        if (!res.ok) return;
-        const json: ProjectConfig = await res.json();
+        const json = await cachedJson<ProjectConfig>(`${API_URL}/api/project/config`);
         if (!cancelled) setConfig(json);
       } catch {
         // Panels just show "Loading…" indefinitely — not critical enough for a retry UI here.

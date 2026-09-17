@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useMyProject } from "@/lib/admin/useMyProject";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/dev/coverage")({
   head: () => ({
@@ -68,14 +69,9 @@ function Coverage() {
           engagement_id: project.engagement_id,
           requester_email: user.email,
         });
-        const [summaryRes, ticketsRes] = await Promise.all([
-          fetch(`${API_URL}/api/project/summary?${scope}`),
-          fetch(`${API_URL}/api/project/tickets?label=unlinked&${scope}`),
-        ]);
-        if (!summaryRes.ok || !ticketsRes.ok) throw new Error("Request failed");
         const [summaryJson, ticketsJson] = await Promise.all([
-          summaryRes.json(),
-          ticketsRes.json(),
+          cachedJson<Summary>(`${API_URL}/api/project/summary?${scope}`),
+          cachedJson<Ticket[]>(`${API_URL}/api/project/tickets?label=unlinked&${scope}`),
         ]);
         if (!cancelled) {
           setSummary(summaryJson);

@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import { Panel } from "@/components/relay/primitives";
+import { cachedJson } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -35,9 +36,7 @@ export function EmployeeBreakdown({ sprintId }: { sprintId?: number | undefined 
       setError(null);
       try {
         const query = sprintId !== undefined ? `?sprint_id=${sprintId}` : "";
-        const res = await fetch(`${API_URL}/api/analytics/employee-breakdown${query}`);
-        if (!res.ok) throw new Error(`Request failed (${res.status})`);
-        const json: BreakdownResponse = await res.json();
+        const json = await cachedJson<BreakdownResponse>(`${API_URL}/api/analytics/employee-breakdown${query}`);
         if (!cancelled) setData(json);
       } catch (err) {
         if (!cancelled) {

@@ -4,6 +4,8 @@
 // Sign-off, Meeting Notes). SOW keeps its own existing upload flow
 // (ProjectDetailPanel's DeliverablesTab) — this is everything else.
 
+
+import { cachedJson, invalidateCache, relayFetch } from "@/lib/relayApi";
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
 export const PM_DOC_TYPES = [
@@ -77,14 +79,12 @@ export async function listDocuments(
   const params = new URLSearchParams({ engagement_id: engagementId });
   if (filters?.ingestion_status) params.set("ingestion_status", filters.ingestion_status);
   if (filters?.doc_type) params.set("doc_type", filters.doc_type);
-  const res = await fetch(`${API_URL}/api/admin/documents?${params}`);
-  if (!res.ok) throw new Error(`Failed to load documents (${res.status})`);
-  const data = await res.json();
+  const data = await cachedJson<{ documents: PmDocument[] }>(`${API_URL}/api/admin/documents?${params}`);
   return data.documents;
 }
 
 export async function getDocument(id: string): Promise<PmDocument> {
-  const res = await fetch(`${API_URL}/api/admin/documents/${id}`);
+  const res = await relayFetch(`${API_URL}/api/admin/documents/${id}`);
   if (!res.ok) throw new Error(`Failed to load document (${res.status})`);
   return res.json();
 }
@@ -98,12 +98,13 @@ export async function uploadDocuments(
   form.append("engagement_id", engagementId);
   form.append("uploaded_by", uploadedBy);
   for (const f of files) form.append("files", f);
-  const res = await fetch(`${API_URL}/api/admin/documents/upload`, { method: "POST", body: form });
+  const res = await relayFetch(`${API_URL}/api/admin/documents/upload`, { method: "POST", body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail || `Upload failed (${res.status})`);
   }
   const data = await res.json();
+  invalidateCache();
   return data.ingested;
 }
 
@@ -124,7 +125,7 @@ export type ConfirmEdits = {
 };
 
 export async function confirmDocument(id: string, edits: ConfirmEdits): Promise<PmDocument> {
-  const res = await fetch(`${API_URL}/api/admin/documents/${id}/confirm`, {
+  const res = await relayFetch(`${API_URL}/api/admin/documents/${id}/confirm`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(edits),
@@ -133,14 +134,17 @@ export async function confirmDocument(id: string, edits: ConfirmEdits): Promise<
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail || `Confirm failed (${res.status})`);
   }
+  invalidateCache();
   return res.json();
 }
 
 export async function rejectDocument(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/admin/documents/${id}/reject`, { method: "PATCH" });
+  const res = await relayFetch(`${API_URL}/api/admin/documents/${id}/reject`, { method: "PATCH" });
   if (!res.ok) throw new Error(`Reject failed (${res.status})`);
+  invalidateCache();
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  await fetch(`${API_URL}/api/admin/documents/${id}`, { method: "DELETE" });
+  await relayFetch(`${API_URL}/api/admin/documents/${id}`, { method: "DELETE" });
+  invalidateCache();
 }

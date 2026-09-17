@@ -421,13 +421,19 @@ async def sync_all(pool, model, full: bool = False) -> dict:
 
 import asyncio  # noqa: E402
 
-from fastapi import APIRouter, HTTPException, Request  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException, Request  # noqa: E402
+
+from api.auth import VerifiedUser, require_role  # noqa: E402
 
 router = APIRouter()
 
+# Ops-only: triggers real Jira/GitHub API calls and writes to the shared
+# corpus — had no auth at all before.
+_Admin = Depends(require_role("ADMIN"))
+
 
 @router.get("/api/sync/status")
-async def sync_status(request: Request):
+async def sync_status(request: Request, user: VerifiedUser = _Admin):
     rows = await request.app.state.pool.fetch(
         "SELECT source, last_synced_at, last_status, last_count FROM public.sync_state ORDER BY source"
     )
@@ -435,7 +441,7 @@ async def sync_status(request: Request):
 
 
 @router.post("/api/sync")
-async def sync_now(request: Request, full: bool = False):
+async def sync_now(request: Request, full: bool = False, user: VerifiedUser = _Admin):
     """Kick off a sync pass in the background; returns immediately. ?full=true
     ignores cursors and re-pulls everything (first boot, recovery)."""
 
@@ -449,7 +455,7 @@ async def sync_now(request: Request, full: bool = False):
 
 
 @router.post("/api/sync/ticket/{ticket_key}")
-async def sync_one_ticket(ticket_key: str, request: Request):
+async def sync_one_ticket(ticket_key: str, request: Request, user: VerifiedUser = _Admin):
     """Immediate resync of one Jira issue — the UI's assignee/status change
     action calls this so the edit is searchable without waiting for the poll."""
     from api.query import ready_model

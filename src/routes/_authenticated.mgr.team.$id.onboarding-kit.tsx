@@ -10,6 +10,7 @@ import {
   Panel,
   TicketKey,
 } from "@/components/relay/primitives";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/mgr/team/$id/onboarding-kit")({
   head: () => ({
@@ -60,9 +61,7 @@ function OnboardingKitPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/project/team`);
-        if (!res.ok) throw new Error("Request failed");
-        const json: JiraMember[] = await res.json();
+        const json = await cachedJson<JiraMember[]>(`${API_URL}/api/project/team`);
         if (!cancelled) setTeam(json);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load the team.");
@@ -80,11 +79,9 @@ function OnboardingKitPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(
+        const json = await cachedJson<Ticket[]>(
           `${API_URL}/api/project/tickets?assignee=${encodeURIComponent(member.name)}`,
         );
-        if (!res.ok) return;
-        const json: Ticket[] = await res.json();
         if (!cancelled) setTickets(json.filter((t) => t.status !== "Done"));
       } catch {
         // Starting-tickets card just stays empty.

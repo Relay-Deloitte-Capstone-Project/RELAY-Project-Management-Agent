@@ -9,6 +9,7 @@ import {
   Panel,
   SkeletonText,
 } from "@/components/relay/primitives";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/admin/knowledge-base")({
   head: () => ({
@@ -58,9 +59,7 @@ function KnowledgeBase() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/admin/knowledge-base`);
-        if (!res.ok) throw new Error("Request failed");
-        const json: KnowledgeBaseData = await res.json();
+        const json = await cachedJson<KnowledgeBaseData>(`${API_URL}/api/admin/knowledge-base`);
         if (!cancelled) setData(json);
       } catch (err) {
         if (!cancelled) {

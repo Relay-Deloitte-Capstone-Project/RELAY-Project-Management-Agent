@@ -12,6 +12,7 @@ import {
   firstIncompleteStep,
   type SetupProgress,
 } from "@/lib/admin/mockProjects";
+import { cachedJson, invalidateCache, relayFetch } from "@/lib/relayApi";
 
 const API_URL = import.meta.env["VITE_ASK_API_URL"] ?? "http://127.0.0.1:8001";
 
@@ -76,21 +77,15 @@ export function deriveSetupProgress(p: BackendProject): SetupProgress {
 }
 
 export async function fetchProjects(): Promise<BackendProject[]> {
-  const res = await fetch(`${API_URL}/api/admin/projects`);
-  if (!res.ok) throw new Error(`Failed to load projects (${res.status})`);
-  return res.json();
+  return cachedJson<BackendProject[]>(`${API_URL}/api/admin/projects`);
 }
 
 export async function fetchProject(engagementId: string): Promise<BackendProject> {
-  const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}`);
-  if (!res.ok) throw new Error(`Failed to load project (${res.status})`);
-  return res.json();
+  return cachedJson<BackendProject>(`${API_URL}/api/admin/projects/${engagementId}`);
 }
 
 export async function fetchMembers(engagementId: string): Promise<ProjectMember[]> {
-  const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`);
-  if (!res.ok) throw new Error(`Failed to load team (${res.status})`);
-  return res.json();
+  return cachedJson<ProjectMember[]>(`${API_URL}/api/admin/projects/${engagementId}/staffing`);
 }
 
 // Returns either { conflict: false, member } once the member is actually
@@ -104,7 +99,7 @@ export async function addMember(
 ): Promise<
   { conflict: true; conflicts: MemberConflict[] } | { conflict: false; member: ProjectMember }
 > {
-  const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
+  const res = await relayFetch(`${API_URL}/api/admin/projects/${engagementId}/staffing`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(fields),
@@ -113,14 +108,18 @@ export async function addMember(
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail || `Failed to add member (${res.status})`);
   }
+  invalidateCache(`${API_URL}/api/admin/projects/${engagementId}/staffing`);
+  invalidateCache(`${API_URL}/api/admin/projects`);
   return res.json();
 }
 
 export async function removeMember(engagementId: string, memberId: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/admin/projects/${engagementId}/staffing/${memberId}`, {
+  const res = await relayFetch(`${API_URL}/api/admin/projects/${engagementId}/staffing/${memberId}`, {
     method: "DELETE",
   });
   if (!res.ok) throw new Error(`Failed to remove member (${res.status})`);
+  invalidateCache(`${API_URL}/api/admin/projects/${engagementId}/staffing`);
+  invalidateCache(`${API_URL}/api/admin/projects`);
 }
 
 export { SETUP_STEPS, completedStepCount, firstIncompleteStep };

@@ -18,6 +18,7 @@ import {
   TicketKey,
 } from "@/components/relay/primitives";
 import { Input } from "@/components/ui/input";
+import { cachedJson } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/mgr/team/$id")({
   head: () => ({
@@ -92,9 +93,7 @@ function TeamMemberProfile() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/project/team-continuity`);
-        if (!res.ok) throw new Error(`Couldn't load the team (${res.status})`);
-        const json: ContinuityRow[] = await res.json();
+        const json = await cachedJson<ContinuityRow[]>(`${API_URL}/api/project/team-continuity`);
         if (!cancelled) setTeam(json);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load the team.");
@@ -110,13 +109,13 @@ function TeamMemberProfile() {
     let cancelled = false;
     const name = member.name;
     (async () => {
-      const [ticketRes, trailRes] = await Promise.all([
-        fetch(`${API_URL}/api/project/tickets?assignee=${encodeURIComponent(name)}`),
-        fetch(`${API_URL}/api/project/member-trail?name=${encodeURIComponent(name)}`),
+      const [ticketsResult, trailResult] = await Promise.allSettled([
+        cachedJson<Ticket[]>(`${API_URL}/api/project/tickets?assignee=${encodeURIComponent(name)}`),
+        cachedJson<Trail>(`${API_URL}/api/project/member-trail?name=${encodeURIComponent(name)}`),
       ]);
       if (cancelled) return;
-      if (ticketRes.ok) setTickets(await ticketRes.json());
-      if (trailRes.ok) setTrail(await trailRes.json());
+      if (ticketsResult.status === "fulfilled") setTickets(ticketsResult.value);
+      if (trailResult.status === "fulfilled") setTrail(trailResult.value);
     })().catch((err) => {
       if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load their work.");
     });

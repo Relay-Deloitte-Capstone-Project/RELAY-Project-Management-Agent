@@ -6,6 +6,7 @@ import {
   clearSessionCookie,
   readSessionToken,
   setSessionCookie,
+  signApiToken,
   signToken,
   verifyToken,
 } from "@/lib/auth/session.server";
@@ -65,6 +66,18 @@ export const logout = createServerFn({ method: "POST" }).handler(async () => {
   clearSessionCookie();
   return { ok: true };
 });
+
+// Ask Project's browser code calls the Python backend directly (not through
+// a TanStack server function), and that backend now verifies a bearer token
+// on every request (backend/api/auth.py) instead of trusting a client-
+// supplied email — this is what a page calls to get one. authMiddleware
+// re-checks the DB-backed session (not just the JWT signature), so a
+// revoked/logged-out session can't mint a fresh API token either.
+export const getAskApiToken = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    return { token: signApiToken(context.user), expiresInSeconds: 60 * 15 };
+  });
 
 export const getSessionUser = createServerFn({ method: "GET" }).handler(async () => {
   const token = readSessionToken();

@@ -39,6 +39,7 @@ import {
   type LeavingPerson,
 } from "@/lib/mgr/handoverKitMock";
 import { cn } from "@/lib/utils";
+import { cachedJson, invalidateCache, relayFetch } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/mgr/handover-kit")({
   head: () => ({
@@ -164,18 +165,17 @@ function HandoverKit() {
       try {
         setJiraLoading(true);
 
-        const [ticketsResponse, membersResponse] = await Promise.all([
-          fetch(`${API_BASE}/api/handover/kpd/tickets`),
-          fetch(`${API_BASE}/api/project/team`),
+        const [ticketsResult, membersResult] = await Promise.allSettled([
+          cachedJson<JiraTicket[]>(`${API_BASE}/api/handover/kpd/tickets`),
+          cachedJson<JiraMember[]>(`${API_BASE}/api/project/team`),
         ]);
 
-        if (!ticketsResponse.ok) {
+        if (ticketsResult.status === "rejected") {
           throw new Error("Unable to load Jira tickets");
         }
 
-        const tickets = (await ticketsResponse.json()) as JiraTicket[];
-
-        const members = membersResponse.ok ? ((await membersResponse.json()) as JiraMember[]) : [];
+        const tickets = ticketsResult.value;
+        const members = membersResult.status === "fulfilled" ? membersResult.value : [];
 
         setJiraTickets(tickets);
         setJiraMembers(members);
@@ -613,7 +613,7 @@ function AssignCoverageTab({
     setSavingTicket(ticket.key);
 
     try {
-      const response = await fetch(
+      const response = await relayFetch(
         `${API_BASE}/api/handover/kpd/tickets/${encodeURIComponent(ticket.key)}/assignee`,
         {
           method: "PUT",
@@ -630,6 +630,7 @@ function AssignCoverageTab({
         const errorBody = await response.json().catch(() => null);
         throw new Error(errorBody?.detail ?? "Jira assignment failed");
       }
+      invalidateCache(`${API_BASE}/api/handover/kpd/tickets`);
 
       setHandoverTickets((currentTickets) =>
         currentTickets.map((currentTicket) =>
@@ -1279,7 +1280,7 @@ function ExportKitTab({
       await Promise.all(
         batch.map(async (ticket) => {
           try {
-            const response = await fetch(
+            const response = await relayFetch(
               `${API_BASE}/api/handover/kpd/tickets/${encodeURIComponent(ticket.key)}/assignee`,
               {
                 method: "PUT",
@@ -1301,6 +1302,7 @@ function ExportKitTab({
         }),
       );
     }
+    invalidateCache(`${API_BASE}/api/handover/kpd/tickets`);
 
     const transfer = {
       handoverId: `handover-${Date.now()}`,
