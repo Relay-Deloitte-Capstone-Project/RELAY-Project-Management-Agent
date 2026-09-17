@@ -117,7 +117,13 @@ export async function cachedJson<T>(
 
 /** Drop cached GETs so the next read is forced fresh — call after a mutation
  * (upload, confirm, delete, etc.) that changed data a cached URL depends on.
- * With no argument, clears everything (e.g. on logout). */
+ * With no argument, clears everything, including the cached API token —
+ * call this on login and logout. Login and logout both navigate client-side
+ * (see LoginForm.tsx, SignOutButton.tsx), so this module's state otherwise
+ * survives the transition: the previous identity's still-fresh token would
+ * get reused for the new session's first requests, passing require_user
+ * (it's a validly signed token, just for the wrong person) while failing
+ * any role check that the new person's actual role would have passed. */
 export function invalidateCache(url?: string): void {
   if (url) {
     dataCache.delete(url);
@@ -125,5 +131,6 @@ export function invalidateCache(url?: string): void {
   } else {
     dataCache.clear();
     dataInFlight.clear();
+    tokenCache = null;
   }
 }

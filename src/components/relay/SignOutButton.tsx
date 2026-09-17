@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { logout } from "@/lib/auth/functions";
+import { invalidateCache } from "@/lib/relayApi";
 
 export function SignOutButton() {
   const navigate = useNavigate();
@@ -10,6 +11,7 @@ export function SignOutButton() {
   const signOut = async () => {
     setPending(true);
     await logout();
+    invalidateCache();
     navigate({ to: "/login" });
   };
 

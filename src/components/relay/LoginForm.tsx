@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { login } from "@/lib/auth/functions";
 import { roleHome } from "@/lib/auth/types";
+import { invalidateCache } from "@/lib/relayApi";
 
 const DEMO_ACCOUNTS = [
   { role: "Developer", name: "Akshar", email: "akshar@relay.dev" },
@@ -25,6 +26,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string | undefined }) {
     setPending(true);
     try {
       const result = await login({ data: { email, password } });
+      invalidateCache();
       navigate({ to: redirectTo || roleHome(result.user.role) });
     } catch {
       setError("Invalid email or password");
