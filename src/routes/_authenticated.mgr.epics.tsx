@@ -3,7 +3,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import { Chip, GhostButton, PageSection, Panel, SectionLabel } from "@/components/relay/primitives";
+import {
+  Chip,
+  ExpandableText,
+  GhostButton,
+  PageSection,
+  Panel,
+  SectionLabel,
+} from "@/components/relay/primitives";
 import { cachedJson, relayFetch } from "@/lib/relayApi";
 
 type Epic = {
@@ -307,9 +314,10 @@ function ManagerEpics() {
                           <SectionLabel>AI summary</SectionLabel>
                         </div>
 
-                        <p className="line-clamp-3 text-[10px] leading-4 text-ink">
-                          {summaries[epic.epic_key]}
-                        </p>
+                        <ExpandableText
+                          text={summaries[epic.epic_key] ?? ""}
+                          className="text-[10px] leading-4 text-ink"
+                        />
                       </div>
                     ) : null}
                   </Panel>
