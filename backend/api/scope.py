@@ -11,6 +11,13 @@ router = APIRouter(prefix="/api/scope", tags=["scope"])
 # had no auth at all before.
 _Manager = Depends(require_role("ADMIN", "MANAGER"))
 
+# The epic summary is also surfaced on dev.epics.tsx (a developer generating
+# a plain-language recap of their own epic) — narrower than _Manager on
+# purpose, since the other routes below return SOW compliance/deliverable
+# data developers shouldn't see, but this one route only ever returns a
+# short synthesized paragraph.
+_ManagerOrDeveloper = Depends(require_role("ADMIN", "MANAGER", "DEVELOPER"))
+
 
 @router.get("/deliverables")
 async def deliverables(request: Request, user: VerifiedUser = _Manager):
@@ -171,7 +178,7 @@ async def epic_progress(request: Request, user: VerifiedUser = _Manager):
     return result
 
 @router.post("/epics/{epic_key}/summary")
-async def generate_epic_summary(epic_key: str, request: Request, user: VerifiedUser = _Manager):
+async def generate_epic_summary(epic_key: str, request: Request, user: VerifiedUser = _ManagerOrDeveloper):
     """Generate an AI summary from the latest classified Jira state."""
     import os
     from groq import AsyncGroq

@@ -2,9 +2,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import { Chip, GhostButton, PageSection, Panel, ProgressRow } from "@/components/relay/primitives";
+import {
+  Chip,
+  ExpandableText,
+  GhostButton,
+  PageSection,
+  Panel,
+  ProgressRow,
+  SectionLabel,
+} from "@/components/relay/primitives";
 import { useMyProject } from "@/lib/admin/useMyProject";
-import { cachedJson } from "@/lib/relayApi";
+import { cachedJson, relayFetch } from "@/lib/relayApi";
 
 export const Route = createFileRoute("/_authenticated/dev/epics")({
   head: () => ({
@@ -39,6 +47,27 @@ function Epics() {
   const { project, loading: loadingProject } = useMyProject(user.email);
   const [epics, setEpics] = useState<Epic[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [summaries, setSummaries] = useState<Record<string, string>>({});
+  const [summaryLoading, setSummaryLoading] = useState<string | null>(null);
+
+  async function generateSummary(epicKey: string) {
+    try {
+      setSummaryLoading(epicKey);
+      const response = await relayFetch(`${API_URL}/api/scope/epics/${epicKey}/summary`, {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("Failed to generate AI summary");
+      const data: { epic_key: string; summary: string } = await response.json();
+      setSummaries((current) => ({ ...current, [epicKey]: data.summary }));
+    } catch (err) {
+      setSummaries((current) => ({
+        ...current,
+        [epicKey]: err instanceof Error ? err.message : "Couldn't generate a summary.",
+      }));
+    } finally {
+      setSummaryLoading(null);
+    }
+  }
 
   useEffect(() => {
     if (!project) return;
@@ -104,10 +133,27 @@ function Epics() {
                 </div>
 
                 <div className="mt-4 flex items-center gap-2">
-                  <GhostButton tone="brand">
-                    <Sparkles /> Generate summary
+                  <GhostButton
+                    tone="brand"
+                    onClick={() => generateSummary(epic.key)}
+                    disabled={summaryLoading === epic.key}
+                  >
+                    <Sparkles /> {summaryLoading === epic.key ? "Generating…" : "Generate summary"}
                   </GhostButton>
                 </div>
+
+                {summaries[epic.key] && (
+                  <div className="mt-3 rounded-md border border-border bg-surface-soft p-2">
+                    <div className="mb-1 flex items-center gap-1">
+                      <Sparkles className="size-3 text-brand" />
+                      <SectionLabel>AI summary</SectionLabel>
+                    </div>
+                    <ExpandableText
+                      text={summaries[epic.key] ?? ""}
+                      className="text-[12px] leading-5 text-ink"
+                    />
+                  </div>
+                )}
               </Panel>
             ))}
           </div>

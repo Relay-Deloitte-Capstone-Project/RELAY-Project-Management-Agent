@@ -598,7 +598,16 @@ async def epics(
                 "scope_compliance_pct": round(compliant / n * 100, 1) if n else 0,
             }
         )
+    # Jira's own issue order isn't guaranteed to be epic-number order (it
+    # came back descending) — sort explicitly so this list is stable and
+    # ascending, matching /api/scope/epics on the manager side.
+    result.sort(key=lambda e: _epic_sort_key(e["key"]))
     return result
+
+
+def _epic_sort_key(epic_key: str) -> tuple:
+    prefix, _, suffix = epic_key.rpartition("-")
+    return (prefix, int(suffix)) if suffix.isdigit() else (epic_key, 0)
 
 
 @router.get("/api/project/sprint-history")
