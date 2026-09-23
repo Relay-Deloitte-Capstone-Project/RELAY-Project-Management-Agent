@@ -3,14 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { RefreshCw, Sparkles, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import {
-  Chip,
-  ExpandableText,
-  GhostButton,
-  PageSection,
-  Panel,
-  SectionLabel,
-} from "@/components/relay/primitives";
+import { EpicSummaryModal } from "@/components/relay/EpicSummaryModal";
+import { Chip, GhostButton, PageSection, Panel, SectionLabel } from "@/components/relay/primitives";
 import { cachedJson, relayFetch } from "@/lib/relayApi";
 
 type Epic = {
@@ -76,6 +70,7 @@ function ManagerEpics() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState<string | null>(null);
+  const [modalEpic, setModalEpic] = useState<Epic | null>(null);
 
   async function loadEpics() {
     try {
@@ -94,11 +89,12 @@ function ManagerEpics() {
     }
   }
 
-  async function generateSummary(epicKey: string) {
+  async function generateSummary(epic: Epic) {
+    setModalEpic(epic);
     try {
-      setSummaryLoading(epicKey);
+      setSummaryLoading(epic.epic_key);
 
-      const response = await relayFetch(`${API}/api/scope/epics/${epicKey}/summary`, {
+      const response = await relayFetch(`${API}/api/scope/epics/${epic.epic_key}/summary`, {
         method: "POST",
       });
 
@@ -110,10 +106,14 @@ function ManagerEpics() {
 
       setSummaries((current) => ({
         ...current,
-        [epicKey]: data.summary,
+        [epic.epic_key]: data.summary,
       }));
     } catch (error) {
       console.error("Failed to generate AI summary:", error);
+      setSummaries((current) => ({
+        ...current,
+        [epic.epic_key]: "Couldn't generate a summary. Try again.",
+      }));
     } finally {
       setSummaryLoading(null);
     }
@@ -299,27 +299,13 @@ function ManagerEpics() {
 
                       <GhostButton
                         tone="brand"
-                        onClick={() => generateSummary(epic.epic_key)}
+                        onClick={() => generateSummary(epic)}
                         disabled={summaryLoading === epic.epic_key}
                       >
                         <Sparkles />
                         {summaryLoading === epic.epic_key ? "Generating..." : "Summary"}
                       </GhostButton>
                     </div>
-
-                    {summaries[epic.epic_key] ? (
-                      <div className="mt-2 rounded-md border border-border bg-surface-soft p-2">
-                        <div className="mb-1 flex items-center gap-1">
-                          <Sparkles className="size-3 text-brand" />
-                          <SectionLabel>AI summary</SectionLabel>
-                        </div>
-
-                        <ExpandableText
-                          text={summaries[epic.epic_key] ?? ""}
-                          className="text-[10px] leading-4 text-ink"
-                        />
-                      </div>
-                    ) : null}
                   </Panel>
                 );
               })}
@@ -327,6 +313,24 @@ function ManagerEpics() {
           </>
         )}
       </PageSection>
+
+      <EpicSummaryModal
+        data={
+          modalEpic
+            ? {
+                epicKey: modalEpic.epic_key,
+                title: EPIC_NAMES[modalEpic.epic_key] ?? modalEpic.epic_key,
+                status: modalEpic.status,
+                ticketCount: modalEpic.ticket_count,
+                completionPct: modalEpic.completion_percent,
+                scopeCompliancePct: modalEpic.scope_compliance_percent,
+                summary: summaries[modalEpic.epic_key] ?? null,
+                loading: summaryLoading === modalEpic.epic_key,
+              }
+            : null
+        }
+        onClose={() => setModalEpic(null)}
+      />
     </AppShell>
   );
 }

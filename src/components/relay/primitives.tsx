@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -311,26 +311,6 @@ export function Avatar({
 
 export function LegalNote({ children }: { children: ReactNode }) {
   return <p className="text-[11px] text-mute italic">{children}</p>;
-}
-
-/* Clamps long generated text (AI summaries) to 3 lines with a toggle to
-   read the rest — line-clamp-3 is a fixed Tailwind class, not built from a
-   prop, so it's actually present in the compiled CSS (a dynamic class name
-   like `line-clamp-${n}` never gets picked up by Tailwind's scanner). */
-export function ExpandableText({ text, className }: { text: string; className?: string }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div className={className}>
-      <p className={expanded ? "" : "line-clamp-3"}>{text}</p>
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="mt-1 text-[10px] font-medium text-brand hover:underline"
-      >
-        {expanded ? "Show less" : "Know more"}
-      </button>
-    </div>
-  );
 }
 
 /* Loading placeholders. These mirror the shape of the content that replaces
