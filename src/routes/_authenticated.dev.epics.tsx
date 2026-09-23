@@ -2,15 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/relay/AppShell";
-import {
-  Chip,
-  ExpandableText,
-  GhostButton,
-  PageSection,
-  Panel,
-  ProgressRow,
-  SectionLabel,
-} from "@/components/relay/primitives";
+import { EpicSummaryModal } from "@/components/relay/EpicSummaryModal";
+import { Chip, GhostButton, PageSection, Panel, ProgressRow } from "@/components/relay/primitives";
 import { useMyProject } from "@/lib/admin/useMyProject";
 import { cachedJson, relayFetch } from "@/lib/relayApi";
 
@@ -40,6 +33,7 @@ type Epic = {
   status: string;
   ticket_count: number;
   completion_pct: number;
+  scope_compliance_pct: number;
 };
 
 function Epics() {
@@ -49,20 +43,22 @@ function Epics() {
   const [error, setError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, string>>({});
   const [summaryLoading, setSummaryLoading] = useState<string | null>(null);
+  const [modalEpic, setModalEpic] = useState<Epic | null>(null);
 
-  async function generateSummary(epicKey: string) {
+  async function generateSummary(epic: Epic) {
+    setModalEpic(epic);
     try {
-      setSummaryLoading(epicKey);
-      const response = await relayFetch(`${API_URL}/api/scope/epics/${epicKey}/summary`, {
+      setSummaryLoading(epic.key);
+      const response = await relayFetch(`${API_URL}/api/scope/epics/${epic.key}/summary`, {
         method: "POST",
       });
       if (!response.ok) throw new Error("Failed to generate AI summary");
       const data: { epic_key: string; summary: string } = await response.json();
-      setSummaries((current) => ({ ...current, [epicKey]: data.summary }));
+      setSummaries((current) => ({ ...current, [epic.key]: data.summary }));
     } catch (err) {
       setSummaries((current) => ({
         ...current,
-        [epicKey]: err instanceof Error ? err.message : "Couldn't generate a summary.",
+        [epic.key]: err instanceof Error ? err.message : "Couldn't generate a summary.",
       }));
     } finally {
       setSummaryLoading(null);
@@ -135,25 +131,12 @@ function Epics() {
                 <div className="mt-4 flex items-center gap-2">
                   <GhostButton
                     tone="brand"
-                    onClick={() => generateSummary(epic.key)}
+                    onClick={() => generateSummary(epic)}
                     disabled={summaryLoading === epic.key}
                   >
                     <Sparkles /> {summaryLoading === epic.key ? "Generating…" : "Generate summary"}
                   </GhostButton>
                 </div>
-
-                {summaries[epic.key] && (
-                  <div className="mt-3 rounded-md border border-border bg-surface-soft p-2">
-                    <div className="mb-1 flex items-center gap-1">
-                      <Sparkles className="size-3 text-brand" />
-                      <SectionLabel>AI summary</SectionLabel>
-                    </div>
-                    <ExpandableText
-                      text={summaries[epic.key] ?? ""}
-                      className="text-[12px] leading-5 text-ink"
-                    />
-                  </div>
-                )}
               </Panel>
             ))}
           </div>
@@ -168,6 +151,24 @@ function Epics() {
           </p>
         </Panel>
       </PageSection>
+
+      <EpicSummaryModal
+        data={
+          modalEpic
+            ? {
+                epicKey: modalEpic.key,
+                title: modalEpic.title,
+                status: modalEpic.status,
+                ticketCount: modalEpic.ticket_count,
+                completionPct: modalEpic.completion_pct,
+                scopeCompliancePct: modalEpic.scope_compliance_pct,
+                summary: summaries[modalEpic.key] ?? null,
+                loading: summaryLoading === modalEpic.key,
+              }
+            : null
+        }
+        onClose={() => setModalEpic(null)}
+      />
     </AppShell>
   );
 }

@@ -243,7 +243,11 @@ Do not invent facts or ticket numbers.
         model=os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b"),
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
-        max_tokens=300,
+        # 300 was cutting the model off mid-sentence before it finished its
+        # own 3-4 sentence summary (verified against actual truncated output
+        # in production) — this model's citations/ticket-id lists run longer
+        # than that budget allows even for a "concise" summary.
+        max_tokens=600,
     )
 
     return {
